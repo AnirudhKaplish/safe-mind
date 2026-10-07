@@ -1,0 +1,88 @@
+{
+  "report_type": "Mental-Health Assessment Report",
+  "generated_at": "2026-09-12T08:23:54.212864+00:00",
+  "patient_id": "demo-patient-001",
+  "risk_class": "not_depression",
+  "risk_level": "Low",
+  "confidence": 0.6689,
+  "indicators": "not_depression",
+  "evidence": {
+    "shap_top_features": [
+      [
+        "word_count",
+        4.610383793188404
+      ],
+      [
+        "sentiment_neu",
+        1.4787446701229874
+      ],
+      [
+        "sentiment_pos",
+        -0.5271055461439198
+      ],
+      [
+        "sentiment_neg",
+        -0.4448969849240803
+      ],
+      [
+        "anymore",
+        -0.44270452585159326
+      ],
+      [
+        "even",
+        -0.17761840309660704
+      ],
+      [
+        "nothing",
+        -0.17279799058583117
+      ],
+      [
+        "bed",
+        0.13218121126097548
+      ]
+    ],
+    "lime_top_words": [
+      [
+        "I",
+        -0.09803087376990771
+      ],
+      [
+        "anymore",
+        -0.09664432280823687
+      ],
+      [
+        "worth",
+        -0.06814755551257158
+      ],
+      [
+        "Nothing",
+        -0.06346949724827781
+      ],
+      [
+        "don",
+        -0.035942536943924845
+      ],
+      [
+        "bed",
+        0.024554447706829956
+      ],
+      [
+        "even",
+        -0.017752753280915294
+      ],
+      [
+        "why",
+        0.016540921346827105
+      ]
+    ]
+  },
+  "explanation_method": "SHAP (LinearExplainer) + LIME (LimeTextExplainer)",
+  "consent_status": {
+    "status": "granted",
+    "contract_address": "0x1d8aF9022Fd9923b8045111F23e4ac5989BFE234",
+    "last_action": "Modify Consent"
+  },
+  "intended_user": "Doctor / Therapist",
+  "purpose": "Decision support for further human-led assessment",
+  "diagnosis_note": "This report does NOT constitute an autonomous diagnosis. Final clinical judgement rests with the reviewing doctor/therapist."
+}

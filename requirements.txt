@@ -1,0 +1,16 @@
+pandas
+scikit-learn
+scipy
+joblib
+matplotlib
+seaborn
+vaderSentiment
+shap
+lime
+numpy
+
+# For src/models/finetune_transformer.py (run on your own machine/Colab
+# with internet access - not needed for the rest of the pipeline):
+# torch
+# transformers
+# datasets

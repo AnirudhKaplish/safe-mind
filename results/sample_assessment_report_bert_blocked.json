@@ -1,0 +1,12 @@
+{
+  "report_type": "Mental-Health Assessment Report (BERT)",
+  "generated_at": "2026-09-12T13:51:16.157882+00:00",
+  "patient_id": "demo-patient-001",
+  "status": "BLOCKED",
+  "reason": "Processing blocked - consent status is 'revoked', not 'granted'.",
+  "consent_status": {
+    "status": "revoked",
+    "contract_address": "0x1d8aF9022Fd9923b8045111F23e4ac5989BFE234",
+    "last_action": "Revoke Consent"
+  }
+}

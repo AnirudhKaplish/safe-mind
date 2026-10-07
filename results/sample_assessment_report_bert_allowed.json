@@ -1,0 +1,55 @@
+{
+  "report_type": "Mental-Health Assessment Report (BERT)",
+  "generated_at": "2026-09-12T13:51:15.878473+00:00",
+  "patient_id": "demo-patient-001",
+  "risk_class": "depression",
+  "risk_level": "High",
+  "confidence": 0.9423,
+  "confidence_calibrated": true,
+  "indicators": "depression",
+  "evidence": {
+    "lime_top_words": [
+      [
+        "I",
+        0.39901263971916
+      ],
+      [
+        "posting",
+        -0.28125902780016643
+      ],
+      [
+        "just",
+        0.23414411325533394
+      ],
+      [
+        "anymore",
+        0.21601598391100033
+      ],
+      [
+        "bed",
+        -0.1508854144944937
+      ],
+      [
+        "Nothing",
+        0.133334730463861
+      ],
+      [
+        "feels",
+        0.12080394247739122
+      ],
+      [
+        "even",
+        0.0859102337118886
+      ]
+    ]
+  },
+  "explanation_method": "LIME (LimeTextExplainer) on calibrated BERT - SHAP-for-transformers not yet implemented",
+  "consent_status": {
+    "status": "granted",
+    "contract_address": "0x1d8aF9022Fd9923b8045111F23e4ac5989BFE234",
+    "last_action": "Modify Consent"
+  },
+  "intended_user": "Doctor / Therapist",
+  "purpose": "Decision support for further human-led assessment",
+  "diagnosis_note": "This report does NOT constitute an autonomous diagnosis. Final clinical judgement rests with the reviewing doctor/therapist."
+}

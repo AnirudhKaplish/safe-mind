@@ -1,0 +1,34 @@
+{
+  "contractAddress": "0xa5F3B1D5446BD74aB1e978E4E20889bBb137fbfa",
+  "steps": [
+    {
+      "step": "Grant Consent",
+      "txHash": "0x629500f525b25efd3f30bb6bedcc39ecc446e30fe03e6c5c22e12d13de9cd1b0",
+      "blockNumber": 2,
+      "status": "success",
+      "purposeHash": "0xd8103a52f4d8da9f49c3720b4389979b936faba203374f33574dac6367b81ba7"
+    },
+    {
+      "step": "Processing Check (post-grant)",
+      "txHash": "0x73daaff8e3f45dac9859ae35d378a98deeea50efb8538e8eac8d3fbaa9fe14ff",
+      "blockNumber": 3,
+      "status": "success",
+      "allowed": true
+    },
+    {
+      "step": "Modify Consent",
+      "txHash": "0xa39568a9c31d3f25564445bc5b7bae3bca3b0d3b026107a22886d9631d26989c",
+      "blockNumber": 4,
+      "status": "success",
+      "newPurposeHash": "0x3d74f4788272afb4dc5f3f93ccb0bcfa399bc0974f233635aafa55515532eeea"
+    },
+    {
+      "step": "Processing Check (post-modify)",
+      "txHash": "0x8f3996fd9ae833a48a95ab2a9cdb2541ccd8c9c65ff2c36e8090f0fc65c05c4d",
+      "blockNumber": 5,
+      "status": "success",
+      "allowed": true
+    }
+  ],
+  "blockedConfirmed": false
+}

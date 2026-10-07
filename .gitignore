@@ -1,0 +1,25 @@
+
+# Python environment
+venv/
+__pycache__/
+*.pyc
+
+# Node / blockchain
+blockchain/node_modules/
+blockchain/cache/
+blockchain/artifacts/
+
+# Large trained models (too big for GitHub)
+results/bert_model/
+results/*.joblib
+
+# Raw datasets (keep out of the repo, see README)
+data/real_dataset_raw.csv
+data/seed_dataset.csv
+data/augmented_dataset.csv
+results/train_split.csv
+results/test_split.csv
+
+# Misc
+.DS_Store
+*.log
