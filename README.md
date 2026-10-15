@@ -13,11 +13,12 @@ built, what's real vs. seeded, and exactly how to run it.
 | 4 | Baseline classification (LR, RF) | `src/models/train_baselines.py` | ✅ Working, real metrics |
 | 5 | Explainable AI (SHAP + LIME) | `src/xai/explain.py` | ✅ Working, real outputs |
 | 6 | Blockchain dynamic consent (real smart contract) | `blockchain/` | ✅ Working, real deployed contract |
-| 7 | Report generation (with consent enforcement) | `src/report/generate_report.py` | ✅ Working |
+| 7 | Report generation (baseline + BERT ensemble, consent enforcement) | `src/report/generate_report_ensemble.py` | ✅ Working (needs `results/bert_model/`) |
 | 8 | Hardware firmware (ESP32) | `hardware/mhd_hardware.ino` | ✅ Written, needs physical board to flash |
-| 9 | Virtual hardware demo (no board needed) | `hardware/virtual_device.py` | ✅ Working |
-| 10 | Transformer fine-tuning (BERT/RoBERTa) | `src/models/finetune_transformer.py` | ⏳ Script ready - run on your machine/Colab (needs internet to pull pretrained weights) |
-| 11 | Doctor/therapist dashboard | - | Not yet built (next milestone) |
+| 9 | Virtual hardware demo, text (no board needed) | `hardware/virtual_device.py` | ✅ Working |
+| 10 | Transformer fine-tuning (BERT/RoBERTa) | `src/models/finetune_transformer.py` | ✅ Trained on Colab; **required** at `results/bert_model/` by the dashboard and ensemble report (not in git) |
+| 11 | Doctor/therapist dashboard (Meridian) | `src/dashboard/app.py` | ✅ Working (baseline + BERT + LIME, consent-gated) |
+| 12 | Robot digital twin of the ESP32 companion | `robot_sim/` | ✅ Working, driven live by the dashboard (see below) |
 
 ## Dataset in use: REAL DATA
 
@@ -67,7 +68,7 @@ node scripts/compile.js
 node scripts/deploy_and_demo.js
 
 # Structured report (with consent enforcement)
-python3 src/report/generate_report.py
+python3 src/report/generate_report_ensemble.py
 
 # Virtual hardware device (no physical ESP32 needed)
 python3 hardware/virtual_device.py
@@ -93,7 +94,8 @@ mhd_project/
 │   ├── xai/
 │   │   ├── explain.py               # SHAP + LIME
 │   │   └── save_example_outputs.py
-│   └── report/generate_report.py    # combines model + XAI + consent
+│   ├── dashboard/app.py             # Meridian dashboard (Flask)
+│   └── report/generate_report_ensemble.py  # baseline + BERT + consent
 ├── blockchain/
 │   ├── contracts/ConsentManager.sol # the actual smart contract
 │   ├── scripts/compile.js           # solc-based compile (npm, no external binary)
@@ -101,10 +103,41 @@ mhd_project/
 ├── hardware/
 │   ├── mhd_hardware.ino             # ESP32 firmware (Arduino)
 │   └── virtual_device.py            # console simulator of the same logic
+├── robot_sim/                        # 3D digital twin of the companion (PyBullet)
+├── tests/robot_sim/                  # robot + dashboard-integration tests
+├── docs/ROBOT_SIMULATION.md          # twin design, maths, payload contract
 ├── results/                          # all generated metrics/plots/reports
 ├── run_all.sh
 └── requirements.txt
 ```
+
+**Consent at analysis time is log-based:** the dashboard and reports read
+the consent state the contract demo wrote (`results/blockchain_consent_state_granted.json`,
+or `results/blockchain_consent_demo_log.json`, where `blockedConfirmed` means
+revoked). They do not query the chain live during an assessment.
+
+## Robot digital twin (ESP32 companion)
+
+`robot_sim/` is a software twin of the ESP32 device in `hardware/`: a
+pan–tilt head on two SG90 servos, a 128×64 OLED face, an RGB LED, a
+buzzer and two buttons, simulated in PyBullet and shown in an OpenCV
+console. The dashboard publishes each assessment's outcome at
+`GET /api/robot/state` (read-only); the twin polls it and moves to the
+matching state. It shows the *system's* result (analysing, screen clear,
+indicators flagged, models disagree, consent blocked, not a personal
+post, error, offline) — never emotions, clinical words, the input text,
+the patient reference or explanation words.
+
+```bash
+pip install -r requirements.txt -r requirements-robot.txt
+./run_robot_demo.sh                  # dashboard + robot (Windows: run_robot_demo.bat)
+python -m robot_sim --manual         # demo all states without the models
+python -m pytest tests/robot_sim -q  # tests (no BERT weights needed)
+python -m robot_sim.selftest         # PASS/WARN/FAIL self-test
+```
+
+Full design, maths and the payload contract: `docs/ROBOT_SIMULATION.md`;
+review walkthrough: `docs/robot_demo_script.md`.
 
 ## Why the blockchain is a real smart contract, not a mock
 
