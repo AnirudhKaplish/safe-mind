@@ -22,4 +22,12 @@ results/test_split.csv
 
 # Misc
 .DS_Store
-*.log
+*.log# --- robot digital twin (append to .gitignore) ---
+runs/
+runs_dashboard.log
+robot_sim/urdf/*
+!robot_sim/urdf/.gitkeep
+robot_sim/assets/*
+!robot_sim/assets/.gitkeep
+
+.venv/
