@@ -1,83 +1,78 @@
 """
 virtual_device.py
 ==================
-A "virtual ESP32" - mimics exactly what mhd_hardware.ino would show
-on the OLED / LED / servo / buzzer, printed to the console instead.
+A text-only "virtual ESP32": prints what the companion device shows
+(LED / OLED / servo pose / buzzer) for a report, without a board.
 
-Use this to demo the hardware RESPONSE LOGIC before the physical
-board is fully wired up, or as a fallback if you don't have the
-board in the room during the review. It consumes the SAME JSON
-payload shape the real firmware expects over Serial/MQTT, so
-swapping this script for the real ESP32 later is a drop-in change -
-the payload format doesn't change, only where it's sent.
+It reads the real ensemble report (src/report/generate_report_ensemble.py)
+and maps it with robot_sim.controller.from_report() - the SAME mapping and
+state table (robot_sim/states.py) the 3D digital twin uses - so the text
+demo, the twin (python -m robot_sim) and a future serial bridge to the
+ESP32 can never disagree.
 
-Usage:
-    python virtual_device.py
-    (then paste report JSON, or run generate_report.py and pipe its
-    risk_class/confidence/top word into this automatically - see
-    `feed_from_report()` below)
+Safety rules carried over from the twin:
+  - anything missing, malformed or unknown becomes ERROR, never "normal";
+  - no explanation words (LIME/SHAP) and no input text are shown on the
+    device - those stay in the dashboard / report.
+
+Usage (from the repo root; needs results/bert_model/ and the baseline
+*.joblib artefacts, like the dashboard):
+    python hardware/virtual_device.py
 """
 
-import json
+import os
+import sys
 import time
 
-RESPONSE_TABLE = {
-    "normal":     {"led": "GREEN (steady)",        "oled": "Normal / Low - all clear",       "servo": "idle position",      "audio": "soft chime"},
-    "stress":     {"led": "AMBER (slow pulse)",     "oled": "Stress - guarded state",         "servo": "turns toward user",  "audio": "two-tone cue"},
-    "anxiety":    {"led": "ORANGE (breathing pulse)", "oled": "Anxiety - elevated",            "servo": "slow paced movement","audio": "paced-breathing tone"},
-    "depression": {"led": "DEEP BLUE (slow fade)",  "oled": "High risk + key indicators",     "servo": "minimal / settles",  "audio": "supportive tone"},
-}
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+from robot_sim.controller import from_report, to_firmware_line  # noqa: E402
+from robot_sim.states import SPECS  # noqa: E402
+
+RESULTS_DIR = "results"
 
 
-def render_virtual_device(risk_level: str, confidence: float, top_word: str = "-"):
-    profile = RESPONSE_TABLE.get(risk_level, RESPONSE_TABLE["normal"])
-    print("\n" + "┌" + "─" * 40 + "┐")
-    print("│  VIRTUAL ESP32 DEVICE" + " " * 17 + "│")
-    print("├" + "─" * 40 + "┤")
-    print(f"│  LED    : {profile['led']:<28}│")
-    print(f"│  OLED   : {profile['oled']:<28}│")
-    print(f"│  Servo  : {profile['servo']:<28}│")
-    print(f"│  Audio  : {profile['audio']:<28}│")
-    print("├" + "─" * 40 + "┤")
-    print(f"│  risk_level = {risk_level:<10} conf={confidence:.2f}     │")
-    print(f"│  top contributing word: {top_word:<14}│")
-    print("└" + "─" * 40 + "┘")
+def render_virtual_device(report: dict) -> str:
+    """Return the console rendering of the device for one report dict."""
+    cmd = from_report(report)
+    spec = SPECS[cmd.state]
+    led = f"RGB{spec.led_rgb} {spec.led_pattern}" + (f" {spec.led_hz:g} Hz" if spec.led_hz else "")
+    oled = " / ".join(spec.oled_lines)
+    buzzer = spec.buzzer.describe() if spec.buzzer else "none"
+    width = 76
+    rows = [
+        ("State", f"{cmd.state.value} ({spec.label})"),
+        ("LED", led),
+        ("OLED", oled),
+        ("Servos", f"pan {spec.pan_deg:g} deg, tilt {spec.tilt_deg:g} deg - {spec.motion}"),
+        ("Buzzer", buzzer),
+    ]
+    out = ["+" + "-" * width + "+", "|  VIRTUAL ESP32 DEVICE".ljust(width + 1) + "|", "+" + "-" * width + "+"]
+    for k, v in rows:
+        out.append(f"|  {k:<7}: {v}"[: width + 1].ljust(width + 1) + "|")
+    out.append("+" + "-" * width + "+")
+    out.append("serial line for the board: " + to_firmware_line(cmd))
+    return "\n".join(out)
 
 
-def feed_from_report(report: dict):
-    """Takes the dict produced by generate_report.generate_assessment_report()
-    and drives the virtual device exactly as the real firmware would."""
-    if report.get("status") == "BLOCKED":
-        print("\n[VIRTUAL DEVICE] No display update - processing was BLOCKED (consent not valid).")
-        print(f"  Reason: {report.get('reason')}")
-        return
-    risk_class = report["risk_class"]
-    # The real (binary) dataset uses not_depression/depression - map onto
-    # the existing 4-state hardware response table (normal/depression
-    # states cover this; stress/anxiety states remain defined for when
-    # a multi-class dataset is used instead).
-    risk_class = {"not_depression": "normal"}.get(risk_class, risk_class)
-    confidence = report["confidence"]
-    top_word = report["evidence"]["lime_top_words"][0][0] if report["evidence"]["lime_top_words"] else "-"
-    render_virtual_device(risk_class, confidence, top_word)
+def feed_from_report(report: dict) -> None:
+    print(render_virtual_device(report))
 
 
 if __name__ == "__main__":
-    import sys, os
-    sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-    from src.report.generate_report import generate_assessment_report
+    from src.report.generate_report_ensemble import generate_assessment_report_ensemble
 
+    granted = f"{RESULTS_DIR}/blockchain_consent_state_granted.json"
+    revoked = f"{RESULTS_DIR}/blockchain_consent_demo_log.json"
     demo_posts = [
-        ("Had a really nice weekend hiking with some friends, the weather was perfect for it.",
-         "results/blockchain_consent_state_granted.json"),
-        ("My heart has been racing all day and I can't shake this feeling that something bad is about to happen.",
-         "results/blockchain_consent_state_granted.json"),
-        ("I don't even know why I'm posting this. Nothing feels worth doing anymore, I just lie in bed most of the day.",
-         "results/blockchain_consent_state_granted.json"),
+        ("Had a really nice weekend hiking with some friends, the weather was perfect for it.", granted),
+        ("I don't even know why I'm posting this. Nothing feels worth doing anymore, "
+         "I just lie in bed most of the day.", granted),
+        ("Does anyone else find it hard to sleep before exams?", granted),
+        ("I haven't left my room in three days and I don't see the point in getting up anymore.", revoked),
     ]
-
     for text, consent_path in demo_posts:
-        report = generate_assessment_report(text, consent_log_path=consent_path)
-        print("\nINPUT POST:", text[:70], "...")
+        report = generate_assessment_report_ensemble(text, consent_log_path=consent_path)
+        print("\nINPUT POST:", text[:70] + ("..." if len(text) > 70 else ""))
         feed_from_report(report)
         time.sleep(0.3)
