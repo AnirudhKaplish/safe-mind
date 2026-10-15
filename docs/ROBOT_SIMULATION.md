@@ -240,7 +240,7 @@ except Exception:
     robot_bus.publish(error_command(reason="analysis_exception"))
     raise                      # existing behaviour (Flask error page) unchanged
 # ... existing REPORTS.append(report) ...
-robot_bus.publish(from_report(report, report_id=<the id used in the redirect>))
+robot_bus.publish(from_report(report, report_id=report.get("id")))
 
 @app.route("/api/robot/state")          # GET only
 def robot_state():
@@ -254,6 +254,26 @@ unchanged. Flask's dev server is threaded and the debug reloader serves from a
 single child process, so the in-memory bus works (verified by the launcher run).
 
 ---
+
+### Mapping to the firmware's original response table
+
+`hardware/mhd_hardware.ino` was written for a 4-class model
+(`normal` / `stress` / `anxiety` / `depression`). The trained models are
+binary (`depression` / `not_depression`, Kaggle data), so:
+
+| Model outcome (dashboard) | Firmware class | Twin state |
+|---|---|---|
+| both models: `not_depression` | `normal` | SCREEN_CLEAR |
+| both models: `depression` | `depression` | SCREEN_FLAGGED |
+| models disagree | – | REVIEW_NEEDED |
+| not a personal disclosure | – | NOT_APPLICABLE |
+| consent not granted | – | CONSENT_BLOCKED |
+| never produced by the binary models | `stress`, `anxiety` | – |
+
+The twin adds the states the firmware lacks (review, consent, not
+applicable, error, offline) and drops the firmware's "Risk: High" and
+"Key word: …" lines, which would put clinical wording and explanation
+words on a device others can see. The firmware itself is unchanged.
 
 ## 8. What is real and what is simulated
 
