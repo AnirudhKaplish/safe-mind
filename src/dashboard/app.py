@@ -20,12 +20,16 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from datetime import datetime, timezone
 import numpy as np
-from flask import Flask, request, redirect, url_for, render_template_string
+from flask import Flask, request, redirect, url_for, render_template_string, jsonify
 from lime.lime_text import LimeTextExplainer
 
 from src.xai.explain import load_artifacts, featurize
 from src.models.bert_inference import predict_proba as bert_predict_proba, load_bert
 from src.features.input_type_filter import classify_input_type
+# Robot digital twin (robot_sim/): standard-library-only modules. The robot
+# reads its state from /api/robot/state; it can never write back here.
+from robot_sim.bus import robot_bus
+from robot_sim.controller import from_report, processing_command, error_command
 
 RESULTS_DIR = "results"
 BASELINE_DEPRESSION_THRESHOLD = 0.40
@@ -593,9 +597,25 @@ def analyze():
     if not text:
         return redirect(url_for("index"))
 
-    report = build_report(text, patient_id, consent_log_path)
+    robot_bus.publish(processing_command())
+    try:
+        report = build_report(text, patient_id, consent_log_path)
+    except Exception:
+        robot_bus.publish(error_command(reason="analysis_exception"))
+        raise
     REPORTS.append(report)
+    robot_bus.publish(from_report(report, report_id=report.get("id")))
     return redirect(url_for("view_report", report_id=report["id"]))
+
+
+@app.route("/api/robot/state")
+def robot_state():
+    """Read-only state for the robot digital twin (GET only). Carries the
+    robot state and a sanitised report summary - never the text, the
+    patient reference or explanation words."""
+    resp = jsonify(robot_bus.snapshot())
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/report/<int:report_id>")
