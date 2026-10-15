@@ -8,9 +8,14 @@ vaderSentiment
 shap
 lime
 numpy
+flask
 
-# For src/models/finetune_transformer.py (run on your own machine/Colab
-# with internet access - not needed for the rest of the pipeline):
-# torch
-# transformers
+# Required by the dashboard (src/dashboard/app.py), src/models/bert_inference.py
+# and src/report/generate_report_ensemble.py - BERT inference runs locally:
+torch
+transformers>=4.40,<5   # finetune_transformer.py uses TrainingArguments(logging_dir=...), removed in 5.x
+
+# Only for fine-tuning on Colab (optional):
 # datasets
+
+# Robot digital twin (robot_sim/): see requirements-robot.txt
