@@ -134,16 +134,29 @@ rows += expand(normal_posts, "normal", n_variants=5)
 
 df = pd.DataFrame(rows).drop_duplicates(subset="text").sample(frac=1, random_state=42).reset_index(drop=True)
 
-out_path = "/home/claude/mhd_project/data/seed_dataset.csv"
+import argparse
 
-if os.path.exists(out_path):
+parser = argparse.ArgumentParser(description="Build the SYNTHETIC 4-class seed dataset.")
+parser.add_argument("--force", action="store_true",
+                    help="overwrite data/seed_dataset.csv even if it already exists")
+args = parser.parse_args()
+
+# Repo-relative output path (was a hard-coded sandbox path).
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed_dataset.csv")
+
+print("=" * 66)
+print("WARNING: SYNTHETIC DATA. This builds the hand-written 4-class seed")
+print("set (normal/depression/anxiety/stress), NOT the real Kaggle dataset.")
+print("For real results run: python data/prepare_real_dataset.py")
+print("=" * 66)
+
+if os.path.exists(out_path) and not args.force:
     print(f"NOTE: {out_path} already exists (likely your real dataset).")
-    print("Refusing to overwrite it with synthetic seed data.")
-    print("Delete it manually first if you actually want to regenerate the synthetic seed set.")
+    print("Refusing to overwrite it with synthetic seed data. Re-run with --force to overwrite.")
     raise SystemExit(0)
 
 df.to_csv(out_path, index=False)
 
-print(f"Seed dataset built: {len(df)} rows")
+print(f"SYNTHETIC seed dataset built: {len(df)} rows")
 print(df["label"].value_counts())
 print(f"Saved to {out_path}")
