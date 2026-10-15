@@ -39,6 +39,12 @@ def main(argv=None) -> int:
     granted = next((getattr(dash, n) for n in dir(dash)
                     if "consent" in n.lower() and "granted" in n.lower() and isinstance(getattr(dash, n), (str, Path))),
                    config.REPO_ROOT / "results" / "blockchain_consent_state_granted.json")
+    # The status does not depend on the LIME explanations, which are slow
+    # (hundreds of BERT passes per text); skip them for this scan only.
+    if hasattr(dash, "explain_lime_baseline"):
+        dash.explain_lime_baseline = lambda *a, **k: []
+    if hasattr(dash, "explain_lime_bert"):
+        dash.explain_lime_bert = lambda *a, **k: []
     by_status: dict[str, list[int]] = defaultdict(list)
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     for n, line in enumerate(lines, 1):

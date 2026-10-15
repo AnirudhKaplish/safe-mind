@@ -133,10 +133,15 @@ class RobotFSM:
                 self._go(S.ERROR, "error", "invalid payload", source="link",
                          report=None)
             return
+        prev_boot = self.gate.boot_id
         if was_offline:
             self.gate.force(payload)
         elif not self.gate.accept(payload):
             return
+        if prev_boot is not None and payload["boot_id"] != prev_boot:
+            # a restarted dashboard has no reports: drop the old one
+            self.report = None
+            self.report_received_at = None
         self.last_server = payload
         if self.mode is Mode.LIVE:
             self._apply(payload, "live seq" if not was_offline else "link restored")

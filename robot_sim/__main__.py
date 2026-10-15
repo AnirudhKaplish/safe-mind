@@ -27,6 +27,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--poll-hz", type=float, default=config.POLL_HZ)
     ap.add_argument("--gui", action="store_true", help="also open PyBullet's own OpenGL window")
     ap.add_argument("--headless", action="store_true", help="no windows; prints state transitions")
+    ap.add_argument("--realtime", action="store_true",
+                    help="with --headless: follow the wall clock (for recording a live session)")
     ap.add_argument("--seconds", type=float, default=None, help="quit after N seconds")
     ap.add_argument("--record", type=Path, default=None, help="record the console to PATH.mp4")
     ap.add_argument("--seed", type=int, default=7)
@@ -56,7 +58,7 @@ def main(argv=None) -> int:
     from .sim import QUALITY_LADDER, choose_settings
 
     headless = args.headless
-    fixed_step = headless                 # deterministic virtual time when headless
+    fixed_step = headless and not args.realtime   # deterministic virtual time when headless
     rt = TwinRuntime(live=True, manual=manual, url=args.url, poll_hz=args.poll_hz, seed=args.seed,
                      gui=args.gui, sound=args.sound, verbose=args.verbose or headless,
                      clock=None if fixed_step else time.monotonic)
@@ -110,6 +112,10 @@ def main(argv=None) -> int:
             if headless:
                 if args.seconds is None:
                     args.seconds = 10.0
+                if not fixed_step:
+                    sleep = frame_dt - (time.monotonic() - last)
+                    if sleep > 0:
+                        time.sleep(sleep)
             else:
                 cv2.imshow(window, frame)
                 key = cv2.waitKeyEx(1)

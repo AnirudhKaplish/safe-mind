@@ -153,3 +153,13 @@ def test_transition_csv_has_no_report_content(tmp_path):
     assert "SCREEN_FLAGGED" in text
     for leak in ("confidence", "4321", "granted", "AGREEMENT"):
         assert leak not in text
+
+
+def test_dashboard_restart_clears_old_report():
+    f, _ = make()
+    f.on_poll_success(payload(FLAG, 4))
+    assert f.report is not None
+    for _ in range(3):
+        f.on_poll_failure()
+    f.on_poll_success(payload(C.idle_command(), 0, boot="bbbb2222"))
+    assert f.state is S.IDLE and f.report is None
