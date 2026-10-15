@@ -55,18 +55,20 @@ def main(argv=None) -> int:
     from .fsm import Mode
     from .recorder import Recorder, screenshot, stamp
     from .runtime import TwinRuntime
-    from .sim import QUALITY_LADDER, choose_settings
+    from .sim import QUALITY_LADDER, choose_settings, p
 
     headless = args.headless
     fixed_step = headless and not args.realtime   # deterministic virtual time when headless
+    render_3d = not args.no_3d and p is not None
+    if not args.no_3d and p is None:
+        print("[robot] pybullet not found; running twin with 2D console UI.", file=sys.stderr)
     rt = TwinRuntime(live=True, manual=manual, url=args.url, poll_hz=args.poll_hz, seed=args.seed,
                      gui=args.gui, sound=args.sound, verbose=args.verbose or headless,
-                     clock=None if fixed_step else time.monotonic)
+                     clock=None if fixed_step else time.monotonic, physics=render_3d)
     if args.sound and not rt.buzzer.sound:
         print("note: --sound needs winsound (Windows); tones are shown visually only.", file=sys.stderr)
 
-    render_3d = not args.no_3d
-    if fixed_step:
+    if fixed_step and render_3d:
         settings, use_worker = QUALITY_LADDER[0], False      # quality over speed when not real time
         print(f"[robot] headless: rendering {settings.label}")
     elif render_3d:

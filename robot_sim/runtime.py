@@ -50,8 +50,9 @@ class TwinRuntime:
             self.poller.start()
         self.sim = None
         if physics:
-            from .sim import TwinSim
-            self.sim = TwinSim(gui=gui)
+            from .sim import TwinSim, p
+            if p is not None:
+                self.sim = TwinSim(gui=gui)
         self.paused = False
         self._gen_seen = -1
         self._servo_acc = 0.0

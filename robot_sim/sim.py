@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-import pybullet as p
+try:
+    import pybullet as p
+except ImportError:
+    p = None
 
 from . import config, urdf_gen
 from .led import rgba
