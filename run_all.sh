@@ -4,9 +4,16 @@
 set -e
 
 echo "=================================================================="
-echo "STEP 0: Build seed dataset"
+echo "STEP 0: Check the real dataset"
 echo "=================================================================="
-python3 data/build_seed_dataset.py
+if [ ! -f data/seed_dataset.csv ]; then
+  echo "data/seed_dataset.csv not found."
+  echo "Download the Kaggle 'Depression: Reddit Dataset (Cleaned)' to data/real_dataset_raw.csv"
+  echo "and run:  python3 data/prepare_real_dataset.py"
+  echo "(data/build_seed_dataset.py only builds a small SYNTHETIC set - not used here.)"
+  exit 1
+fi
+echo "Using data/seed_dataset.csv ($(($(wc -l < data/seed_dataset.csv) - 1)) rows)"
 
 echo ""
 echo "=================================================================="
@@ -28,13 +35,18 @@ echo "=================================================================="
 
 echo ""
 echo "=================================================================="
-echo "STEP 4: Generate sample assessment reports (allowed + blocked)"
+echo "STEP 4: Generate sample ensemble reports (baseline + BERT)"
 echo "=================================================================="
-python3 src/report/generate_report.py
+if [ ! -d results/bert_model ]; then
+  echo "results/bert_model/ not found - copy the fine-tuned BERT model there first"
+  echo "(see src/models/finetune_transformer.py)."
+  exit 1
+fi
+python3 src/report/generate_report_ensemble.py
 
 echo ""
 echo "=================================================================="
-echo "STEP 5: Run the virtual hardware device demo"
+echo "STEP 5: Run the virtual hardware device demo (text; 3D twin: python3 -m robot_sim)"
 echo "=================================================================="
 python3 hardware/virtual_device.py
 
