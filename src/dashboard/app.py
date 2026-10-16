@@ -24,7 +24,13 @@ from flask import Flask, request, redirect, url_for, render_template_string, jso
 from lime.lime_text import LimeTextExplainer
 
 from src.xai.explain import load_artifacts, featurize
-from src.models.bert_inference import predict_proba as bert_predict_proba, load_bert
+try:
+    from src.models.bert_inference import predict_proba as bert_predict_proba, load_bert
+    BERT_AVAILABLE = os.path.isdir("results/bert_model")
+except Exception:
+    BERT_AVAILABLE = False
+    bert_predict_proba = None
+    load_bert = None
 from src.features.input_type_filter import classify_input_type
 # Robot digital twin (robot_sim/): standard-library-only modules. The robot
 # reads its state from /api/robot/state; it can never write back here.
@@ -100,16 +106,22 @@ def baseline_predict(text):
 
 
 def bert_predict(text):
-    proba_dict = bert_predict_proba([text])[0]
-    dep_prob = proba_dict["depression"]
-    _, _, classes, _ = load_bert()
-    pred_idx = classes.index("depression") if dep_prob >= BERT_DEPRESSION_THRESHOLD else classes.index("not_depression")
-    pred_class = classes[pred_idx]
-    confidence = dep_prob if pred_class == "depression" else 1 - dep_prob
-    lime_words = explain_lime_bert(text, pred_idx)
-    return {"model": "BERT", "model_full": "Fine-tuned, calibrated transformer",
-            "prediction": pred_class, "confidence": float(confidence),
-            "dep_prob": float(dep_prob), "lime_words": lime_words}
+    if BERT_AVAILABLE:
+        proba_dict = bert_predict_proba([text])[0]
+        dep_prob = proba_dict["depression"]
+        _, _, classes, _ = load_bert()
+        pred_idx = classes.index("depression") if dep_prob >= BERT_DEPRESSION_THRESHOLD else classes.index("not_depression")
+        pred_class = classes[pred_idx]
+        confidence = dep_prob if pred_class == "depression" else 1 - dep_prob
+        lime_words = explain_lime_bert(text, pred_idx)
+        return {"model": "BERT", "model_full": "Fine-tuned, calibrated transformer",
+                "prediction": pred_class, "confidence": float(confidence),
+                "dep_prob": float(dep_prob), "lime_words": lime_words}
+    else:
+        base = baseline_predict(text)
+        return {"model": "BERT (Stand-in)", "model_full": "Baseline stand-in (results/bert_model not downloaded)",
+                "prediction": base["prediction"], "confidence": base["confidence"],
+                "dep_prob": base["dep_prob"], "lime_words": base["lime_words"]}
 
 
 def build_report(text, patient_id, consent_log_path):
