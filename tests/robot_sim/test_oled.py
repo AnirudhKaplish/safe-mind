@@ -42,12 +42,19 @@ def test_blink_happens_and_flagged_holds_eyes_open():
     assert early == {1.0}
 
 
-def test_no_mouth_region_below_eyes_except_text():
-    # rows 40..41 are always blank: nothing between eyes and text (no mouth)
+def test_mouth_only_on_result_faces():
+    # Only the two result states draw a mouth (smile / frown) between the
+    # eyes and the text; every other state keeps rows 40..41 blank.
+    from robot_sim.states import RobotState
+    faces = {RobotState.SCREEN_CLEAR, RobotState.SCREEN_FLAGGED}
     b = Behaviour(seed=1)
     for st in STATE_ORDER:
         b.enter(st, 0.0)
-        assert not render(b.oled(0.2))[40:42].any()
+        has_mouth = render(b.oled(0.2))[38:46].any()
+        if st in faces:
+            assert has_mouth, st
+        else:
+            assert not render(b.oled(0.2))[40:42].any(), st
 
 
 def test_gaze_follows_pan():

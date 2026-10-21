@@ -4,8 +4,10 @@ Standard library only. The dashboard builds its payload ``device`` block from
 this table, and the simulator renders from the same table, so the two can
 never disagree.
 
-The robot shows *system states*, never a person's emotions: no mouth, no
-clinical words (see ``FORBIDDEN_WORDS`` and the unit tests).
+Most states show plain system states. The two result states show a
+friendly face (happy when no signs were found, sad + "Meet a therapist"
+when signs were found). Clinical words stay off the device
+(see ``FORBIDDEN_WORDS`` and the unit tests).
 """
 from __future__ import annotations
 
@@ -112,22 +114,20 @@ SPECS: dict[RobotState, StateSpec] = {
         ("Analysing",), None, "neutral", "pan sweep 75↔105°"),
     RobotState.NOT_APPLICABLE: StateSpec(
         RobotState.NOT_APPLICABLE, "Not screened", 90, 90, 40, (90, 90, 85), "steady", 0.0,
-        ("Not screened", "Not a personal post"), None, "neutral", "still",
+        ("Not screened", "Short or not personal"), None, "neutral", "still",
         buzzer=TICK),
     RobotState.CONSENT_BLOCKED: StateSpec(
         RobotState.CONSENT_BLOCKED, "Consent blocked", 90, 100, 30, (120, 125, 122), "steady", 0.0,
         ("Consent not valid", "Nothing processed"), "lock", "none", "still, slightly lowered",
         buzzer=TWO_LOW_TICKS),
     RobotState.SCREEN_CLEAR: StateSpec(
-        RobotState.SCREEN_CLEAR, "Screen complete", 90, 90, 40, (60, 170, 90), "steady", 0.0,
-        ("Screen complete", "No indicators flagged"), None, "neutral", "one gentle nod",
+        RobotState.SCREEN_CLEAR, "You seem okay", 90, 90, 40, (60, 170, 90), "steady", 0.0,
+        ("You seem okay!",), None, "happy", "one gentle nod",
         buzzer=SOFT_CHIME),
     RobotState.SCREEN_FLAGGED: StateSpec(
-        RobotState.SCREEN_FLAGGED, "Indicators flagged", 90, 86, 30, (230, 160, 40), "steady", 0.0,
-        # Spec text "Clinician review advised" is 24 chars and does not fit
-        # the 21-char OLED line; shortened, meaning kept.
-        ("Indicators flagged", "Clinician to review"), None, "attentive",
-        "still, attentive, facing clinician", buzzer=SOFT_TONE),
+        RobotState.SCREEN_FLAGGED, "Please meet a therapist", 90, 86, 30, (220, 60, 60), "steady", 0.0,
+        ("Meet a therapist",), None, "sad",
+        "still, head slightly lowered", buzzer=SOFT_TONE),
     RobotState.REVIEW_NEEDED: StateSpec(
         RobotState.REVIEW_NEEDED, "Review needed", 90, 90, 30, (230, 160, 40), "pulse", 0.5,
         ("Models disagree", "Review needed"), "question", "neutral",

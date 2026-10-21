@@ -1,17 +1,18 @@
-
 # Python environment
 venv/
+.venv/
 __pycache__/
 *.pyc
 
 # Node / blockchain
+node_modules/
 blockchain/node_modules/
 blockchain/cache/
 blockchain/artifacts/
 
 # Large trained models (too big for GitHub)
 results/bert_model/
-results/*.joblib
+# results/*.joblib   <- removed so the small baseline model uploads; add back if the files are large
 
 # Raw datasets (keep out of the repo, see README)
 data/real_dataset_raw.csv
@@ -22,12 +23,13 @@ results/test_split.csv
 
 # Misc
 .DS_Store
-*.log# --- robot digital twin (append to .gitignore) ---
+*.log
+structure.txt
+
+# robot digital twin
 runs/
 runs_dashboard.log
 robot_sim/urdf/*
 !robot_sim/urdf/.gitkeep
 robot_sim/assets/*
 !robot_sim/assets/.gitkeep
-
-.venv/

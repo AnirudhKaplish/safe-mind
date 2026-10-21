@@ -49,7 +49,7 @@ def test_sentinels_never_reach_robot(dashboard, monkeypatch, tmp_path):
     con = Console(rt, render_3d=False)
     con.compose()
     assert_clean(" ".join(con.texts))
-    assert any("Indicators flagged" in t for t in con.texts)
+    assert any("Please meet a therapist" in t for t in con.texts)
     csv = rt.fsm.write_csv(tmp_path / "transitions.csv").read_text()
     assert_clean(csv)
     assert_clean(json.dumps(list(rt.fsm.events)))

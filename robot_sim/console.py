@@ -1,4 +1,4 @@
-"""OpenCV console: 3D view + telemetry cards, keys, mouse orbit.
+"""OpenCV console: 3D robot view + plain-language result cards, keys, mouse orbit.
 
 Layout (1280x720, window resizable):
   banner (48 px, full width) - LIVE or striped MANUAL banner, every frame
@@ -54,7 +54,28 @@ _BOLD_CANDIDATES = [
     "C:/Windows/Fonts/arialbd.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]
-_SUBST = {"●": "*", "—": "-", "°": " deg", "·": "|", "✓": "v", "µ": "u", "↔": "<>", "×": "x", "±": "+/-"}
+_SUBST = {"●": "*", "—": "-", "°": " deg", "·": "|", "✓": "v", "µ": "u", "↔": "<>", "×": "x", "±": "+/-",
+          "…": "..."}
+
+RED = (192, 57, 43)
+GREEN = (46, 125, 82)
+
+# Plain-language text for each state: (headline, explanation, colour key, light)
+FRIENDLY = {
+    RobotState.IDLE: ("Ready", "Type a post in the dashboard to start a check.", "accent", "White"),
+    RobotState.PROCESSING: ("Reading the post…", "Both AI models are checking the text.", "accent", "Blue (pulsing)"),
+    RobotState.NOT_APPLICABLE: ("Not checked", "Too short, or not a personal post. Please write a bit more.",
+                                "blocked", "Dim white"),
+    RobotState.CONSENT_BLOCKED: ("No permission", "Consent was withdrawn, so nothing was analysed.",
+                                 "blocked", "Grey"),
+    RobotState.SCREEN_CLEAR: ("You seem okay", "No signs of depression were found in this post.", "green", "Green"),
+    RobotState.SCREEN_FLAGGED: ("Signs of depression found", "Please meet a therapist.", "red", "Red"),
+    RobotState.REVIEW_NEEDED: ("Not sure", "The two AI models disagree. A therapist should take a look.",
+                               "amber", "Amber (pulsing)"),
+    RobotState.ERROR: ("Something went wrong", "No result is available. Please try again.", "blocked",
+                       "Grey (blinking)"),
+    RobotState.OFFLINE: ("Not connected", "Start the dashboard so the robot can receive results.", "blocked", "Off"),
+}
 
 
 def _glyph(font, ch: str) -> bytes:
@@ -99,12 +120,17 @@ class Fonts:
 
 class Console:
     def __init__(self, rt: TwinRuntime, *, settings=None, use_worker: bool = False,
-                 render_3d: bool = True) -> None:
+                 render_3d: bool = True, soft_3d: bool = False) -> None:
         self.rt = rt
         self.fonts = Fonts()
         self.rig = CameraRig()
         self.settings = settings
         self.render_3d = render_3d and rt.sim is not None
+        self.soft = None
+        if soft_3d and not self.render_3d:
+            from .soft3d import SoftRenderer
+            self.soft = SoftRenderer()
+        self.details = False
         self.worker = None
         if self.render_3d and use_worker:
             from .sim import RenderWorker
@@ -139,9 +165,19 @@ class Console:
 
     # -- 3D view ------------------------------------------------------------
     def update_view(self) -> None:
+        rt = self.rt
+        if self.soft is not None:
+            target, dist, yaw, pitch = self.rig.update(rt.now())
+            pan, _ = rt.actual("pan")
+            tilt, _ = rt.actual("tilt")
+            w, h = (self.settings.w, self.settings.h) if self.settings is not None else (640, 480)
+            self.view = self.soft.render(pan, tilt, rt.led, rt.oled_fb,
+                                         rt.oled_params.dim if rt.oled_params else False,
+                                         target, dist, yaw, pitch, w, h)
+            self._view_n += 1
+            return
         if not self.render_3d:
             return
-        rt = self.rt
         cam = self.rig.update(rt.now())
         st = self.settings
         if self.worker is not None and not self.worker.alive:
@@ -184,8 +220,10 @@ class Console:
         y = BANNER + GAP
         y = self._state_card(d, y, now) + GAP
         y = self._oled_card(img, d, y) + GAP
-        y = self._servo_card(d, y) + GAP
-        self._led_link_cards(d, y, now)
+        if self.details:
+            self._details_card(d, y, now)
+        else:
+            self._status_card(d, y, now)
         self._footer(d, now)
         self._tick_fps()
         return np.asarray(img)
@@ -198,6 +236,9 @@ class Console:
             self.view_fps = self._view_n / (t - self._fps_t)
             self._fps_t, self._fps_n, self._view_n = t, 0, 0
 
+    def _colour(self, key: str):
+        return {"red": RED, "green": GREEN, "amber": P["amber"], "blocked": P["blocked"]}.get(key, P["accent"])
+
     def _banner(self, img, d, now) -> None:
         fsm = self.rt.fsm
         if fsm.mode is Mode.MANUAL:
@@ -205,27 +246,26 @@ class Console:
             stripe = tuple(int(c * 0.86) for c in P["amber"])
             for x in range(-BANNER, W, 28):
                 d.polygon([(x, BANNER), (x + 14, BANNER), (x + 14 + BANNER, 0), (x + BANNER, 0)], fill=stripe)
-            d.rectangle((14, 9, 560, BANNER - 9), fill=P["ink"])
-            self._t(d, (26, BANNER // 2), "MANUAL DEMO — NOT A MODEL PREDICTION", 17, (255, 214, 120), True, "lm")
+            d.rectangle((14, 9, 600, BANNER - 9), fill=P["ink"])
+            self._t(d, (26, BANNER // 2), "DEMO MODE — sample screens, not a real result", 17,
+                    (255, 214, 120), True, "lm")
             if fsm.live_waiting:
-                d.rectangle((W - 230, 11, W - 14, BANNER - 11), fill=P["ink"])
-                self._t(d, (W - 122, BANNER // 2), "live update waiting", 13, (255, 255, 255), anchor="mm")
+                d.rectangle((W - 260, 11, W - 14, BANNER - 11), fill=P["ink"])
+                self._t(d, (W - 137, BANNER // 2), "new result waiting (press m)", 13, (255, 255, 255),
+                        anchor="mm")
         else:
             d.rectangle((0, 0, W, BANNER), fill=P["ink"])
             rid = (fsm.report or {}).get("report_id")
             if fsm.state is RobotState.OFFLINE:
-                msg = "● LIVE AI — dashboard unreachable"
+                msg = "● Dashboard not connected"
             elif fsm.link_ok is None:
-                msg = "● LIVE AI — connecting to dashboard"
-            elif rid is not None:
-                msg = f"● LIVE AI — dashboard report #{rid}"
+                msg = "● Connecting to the dashboard…"
             else:
-                msg = "● LIVE AI — dashboard"
+                msg = "● Live — connected to the Meridian dashboard"
             col = P["live"] if fsm.link_ok else P["blocked"]
             self._t(d, (20, BANNER // 2), msg, 17, col, True, "lm")
-            lat = fsm.last_latency
-            right = f"link {lat * 1000:.0f} ms" if (lat is not None and fsm.link_ok) else "link —"
-            self._t(d, (W - 20, BANNER // 2), right, 13, (220, 226, 224), anchor="rm")
+            if rid is not None:
+                self._t(d, (W - 20, BANNER // 2), f"Report #{rid}", 14, (220, 226, 224), True, anchor="rm")
         flash = fsm.current_flash()
         hint = self.hint[0] if (self.hint and now < self.hint[1]) else None
         msg = hint or flash
@@ -246,75 +286,81 @@ class Console:
             img.paste(v.crop((0, top, vw, top + vh)), (vx, vy))
         else:
             d.rectangle((vx, vy, vx + vw, vy + vh), fill=(232, 230, 224))
-            self._t(d, (vw // 2, vy + vh // 2), "3D view off (--no-3d)" if not self.render_3d else "rendering…",
+            off = not self.render_3d and self.soft is None
+            self._t(d, (vw // 2, vy + vh // 2), "3D view off (--no-3d)" if off else "rendering…",
                     15, P["muted"], anchor="mm")
         if self.rt.fsm.mode is Mode.MANUAL:
-            # keep the label inside the picture too, so crops never lose it
             d.rectangle((vx, vy + vh - 26, vx + vw, vy + vh), fill=P["amber"])
-            self._t(d, (vx + vw // 2, vy + vh - 13), "MANUAL DEMO — NOT A MODEL PREDICTION", 12,
+            self._t(d, (vx + vw // 2, vy + vh - 13), "DEMO MODE — NOT A REAL RESULT", 12,
                     (255, 255, 255), True, "mm")
-        d.rounded_rectangle((vx + 10, vy + 50, vx + 190, vy + 74), radius=6, fill=(255, 255, 255))
-        self._t(d, (vx + 18, vy + 62), f"camera: {self.rig.name}", 12, P["ink"], anchor="lm")
-        legend = "Digital twin of ESP32 device · 2× SG90 · SSD1306 128×64"
+        legend = "Your companion robot (virtual copy of the ESP32 device) · drag to rotate"
         ly = vy + vh - (54 if self.rt.fsm.mode is Mode.MANUAL else 28)
         lw = int(d.textlength(self.fonts.fix(legend), font=self.fonts.get(12))) + 16
         d.rounded_rectangle((vx + 10, ly - 4, vx + 10 + lw, ly + 18), radius=6, fill=(255, 255, 255))
         self._t(d, (vx + 18, ly), legend, 12, P["ink"])
-        if self.settings is not None and self.render_3d:
-            rate = "fixed-step render" if self.rt.clock == self.rt._virtual_clock else f"{self.view_fps:.0f} fps"
-            self._t(d, (vw - 12, vy + 62), f"{self.settings.label} · {rate}"
-                    f"{' · worker' if self.worker else ''}", 11, P["muted"], anchor="rm")
+        if self.details:
+            d.rounded_rectangle((vx + 10, vy + 50, vx + 190, vy + 74), radius=6, fill=(255, 255, 255))
+            self._t(d, (vx + 18, vy + 62), f"camera: {self.rig.name}", 12, P["ink"], anchor="lm")
+            if self.settings is not None and (self.render_3d or self.soft is not None):
+                kind = "lightweight 3D" if self.soft is not None else self.settings.label
+                self._t(d, (vw - 12, vy + 62), f"{kind} · {self.view_fps:.0f} fps", 11, P["muted"], anchor="rm")
         self._report_card(d, vx + GAP, vy + vh + GAP, vw - 2 * GAP, H - FOOTER - (vy + vh + GAP) - GAP)
 
     def _report_card(self, d, x, y, w, h) -> None:
         fsm = self.rt.fsm
         dismissed = fsm.report_dismissed
-        self._card(d, x, y, w, h, "Last report")
+        self._card(d, x, y, w, h, "Latest result")
         rep = fsm.report if fsm.mode is Mode.LIVE else None
         ink = P["blocked"] if dismissed else P["ink"]
         if fsm.mode is Mode.MANUAL:
-            self._t(d, (x + 12, y + 30), "Manual demo — no report is shown in this mode.", 14, P["muted"])
+            self._t(d, (x + 12, y + 32), "Demo mode — press 1–9 to preview each screen, or m to go live.", 14,
+                    P["muted"])
         elif not rep:
-            self._t(d, (x + 12, y + 30), "No report yet.", 14, P["muted"])
+            self._t(d, (x + 12, y + 32), "No result yet. Submit a post in the dashboard.", 14, P["muted"])
         else:
-            agree = {True: "yes", False: "no", None: "—"}[rep.get("models_agree")]
+            st = rep.get("status")
+            agree = {True: "Yes", False: "No", None: "—"}[rep.get("models_agree")]
             conf = rep.get("confidence")
-            conf_s = f"{conf:.2f}" if (conf is not None and rep.get("status") == "AGREEMENT") else "—"
-            cols = [("status", str(rep.get("status"))), ("models agree", agree), ("mean confidence", conf_s),
-                    ("consent", str(rep.get("consent"))), ("received", fsm.report_received_at or "—")]
+            sure = f"{conf * 100:.0f}%" if (conf is not None and st == "AGREEMENT") else "—"
+            consent = {"granted": "Given", "revoked": "Withdrawn"}.get(str(rep.get("consent")), "Unknown")
+            head, _, ckey, _ = FRIENDLY[fsm.state]
+            cols = [("Result", head, self._colour(ckey)), ("Both AIs agree?", agree, ink),
+                    ("How sure", sure, ink), ("Consent", consent, ink),
+                    ("Received", fsm.report_received_at or "—", ink)]
             cx = x + 12
-            for label, val in cols:
+            for label, val, col in cols:
                 self._t(d, (cx, y + 30), label, 11, P["muted"])
-                self._t(d, (cx, y + 46), val, 16, ink, True)
-                cx += max(110, int(d.textlength(val, font=self.fonts.get(15, True))) + 26)
+                self._t(d, (cx, y + 46), val, 16, P["blocked"] if dismissed else col, True)
+                cx += max(100, int(d.textlength(self.fonts.fix(val), font=self.fonts.get(16, True))) + 28)
             if dismissed:
-                self._t(d, (x + w - 12, y + 8), "dismissed on device", 11, P["muted"], anchor="ra")
+                self._t(d, (x + w - 12, y + 8), "dismissed on robot", 11, P["muted"], anchor="ra")
         self._t(d, (x + 12, y + h - 22),
-                "Screening support only — not a diagnosis. Full report and explanations in the dashboard.",
+                "A screening aid, not a diagnosis. Open the dashboard to see why, and save the report as a PDF.",
                 11, P["muted"])
 
     def _state_card(self, d, y, now) -> int:
         fsm = self.rt.fsm
-        h = 56
-        self._card(d, RX, y, RW, h, "State")
-        spec = SPECS[fsm.state]
-        col = {RobotState.SCREEN_FLAGGED: P["amber"], RobotState.REVIEW_NEEDED: P["amber"],
-               RobotState.SCREEN_CLEAR: P["low"], RobotState.CONSENT_BLOCKED: P["blocked"],
-               RobotState.ERROR: P["blocked"], RobotState.OFFLINE: P["blocked"]}.get(fsm.state, P["accent"])
-        d.rounded_rectangle((RX + 12, y + 26, RX + 18, y + 48), radius=3, fill=col)
-        self._t(d, (RX + 26, y + 37), spec.label, 21, P["ink"], True, "lm")
-        src = {"live report": "live report", "manual": "manual", "link": "link", "button": "button",
-               "startup": "startup"}.get(fsm.source, fsm.source)
-        info = f"{fsm.time_in_state():5.1f} s · source: {src}"
-        self._t(d, (RX + RW - 12, y + 9), info, 12, P["muted"], anchor="ra")
+        h = 110
+        self._card(d, RX, y, RW, h)
+        head, expl, ckey, _ = FRIENDLY[fsm.state]
+        col = self._colour(ckey)
+        d.rounded_rectangle((RX + 12, y + 14, RX + 20, y + h - 14), radius=4, fill=col)
+        self._t(d, (RX + 34, y + 14), "WHAT THE ROBOT SAYS", 11, P["muted"], True)
+        self._t(d, (RX + 34, y + 30), head, 25, col if ckey in ("red", "green") else P["ink"], True)
+        if fsm.state is RobotState.SCREEN_FLAGGED:
+            d.rounded_rectangle((RX + 34, y + 66, RX + RW - 14, y + 96), radius=6, fill=(253, 236, 234),
+                                outline=RED)
+            self._t(d, (RX + 46, y + 81), "Please meet a therapist.", 17, RED, True, "lm")
+        else:
+            self._t(d, (RX + 34, y + 70), expl, 14, P["ink"])
         if config.BORDERLINE_REVIEW:
-            self._t(d, (RX + RW - 12, y + 30), "borderline rule active", 11, P["amber"], True, anchor="ra")
+            self._t(d, (RX + RW - 12, y + 14), "borderline rule active", 11, P["amber"], True, anchor="ra")
         return y + h
 
     def _oled_card(self, img, d, y) -> int:
         rt = self.rt
         h = 256 + 44
-        self._card(d, RX, y, RW, h, "Virtual OLED · SSD1306 128×64 · 4×")
+        self._card(d, RX, y, RW, h, "Robot face (screen on the device)")
         bx = RX + (RW - 512) // 2
         by = y + 30
         d.rounded_rectangle((bx - 4, by - 4, bx + 516, by + 260), radius=6, fill=(18, 20, 22))
@@ -324,85 +370,63 @@ class Console:
             self.texts.extend(rt.oled_params.lines)
         return y + h
 
-    def _servo_card(self, d, y) -> int:
-        rt = self.rt
-        h = 150
-        self._card(d, RX, y, RW, h, "Servos · SG90")
-        tp, tt = rt.telemetry()
-        heads = ["", "cmd°", "actual°", "err°", "PWM µs", "°/s"]
-        xs = [RX + 12, RX + 70, RX + 140, RX + 220, RX + 290, RX + 370]
-        for x, hd in zip(xs, heads):
-            self._t(d, (x, y + 26), hd, 11, P["muted"])
-        for row, (name, t) in enumerate((("Pan", tp), ("Tilt", tt))):
-            yy = y + 42 + row * 18
-            vals = [name, f"{t.cmd:6.1f}", f"{t.actual:6.1f}", f"{t.err:+5.2f}", f"{t.pulse_us:5.0f}", f"{t.vel:+6.1f}"]
-            for x, v in zip(xs, vals):
-                self._t(d, (x, yy), v, 13, P["ink"], bold=(x == xs[0]))
-        # trace
-        gx, gy, gw, gh = RX + 12, y + 80, RW - 24, h - 88
-        d.rectangle((gx, gy, gx + gw, gy + gh), fill=(250, 249, 246), outline=P["line"])
-        lo, hi = 30.0, 150.0
-        for ref in (60, 90, 120):
-            yy = gy + gh - (ref - lo) / (hi - lo) * gh
-            d.line((gx, yy, gx + gw, yy), fill=(236, 233, 226))
-            self._t(d, (gx + gw - 4, yy - 1), f"{ref}°", 9, P["muted"], anchor="rb")
-        tr = list(rt.trace)
-        if len(tr) > 2:
-            t_end = tr[-1][0]
-
-            def pt(t, v):
-                return (gx + gw - (t_end - t) / config.TRACE_SECONDS * gw,
-                        gy + gh - (min(max(v, lo), hi) - lo) / (hi - lo) * gh)
-            step = max(1, len(tr) // 250)
-            tr = tr[::step]
-            for ci, ai, col in ((1, 2, P["accent"]), (3, 4, P["amber"])):
-                act = [pt(r[0], r[ai]) for r in tr]
-                d.line(act, fill=col, width=2)
-                cmd = [pt(r[0], r[ci]) for r in tr]
-                for k in range(0, len(cmd) - 1, 2):     # dashed commanded line
-                    d.line((cmd[k], cmd[k + 1]), fill=(28, 42, 46), width=1)
-        self._t(d, (gx + 6, gy + 4), "pan", 10, P["accent"], True)
-        self._t(d, (gx + 34, gy + 4), "tilt", 10, P["amber"], True)
-        self._t(d, (gx + 62, gy + 4), "dashed = commanded · solid = actual · 10 s", 10, P["muted"])
-        return y + h
-
-    def _led_link_cards(self, d, y, now) -> None:
+    def _status_card(self, d, y, now) -> None:
         rt, fsm = self.rt, self.rt.fsm
         h = H - FOOTER - GAP - y
-        half = (RW - GAP) // 2
-        # LED + buzzer
-        self._card(d, RX, y, half, h, "LED + Buzzer")
-        spec = SPECS[fsm.state]
-        d.ellipse((RX + 12, y + 28, RX + 36, y + 52), fill=tuple(rt.led) if any(rt.led) else (40, 40, 42),
-                  outline=P["line"])
-        pat = spec.led_pattern + (f" {spec.led_hz:g} Hz" if spec.led_pattern in ("pulse", "blink") else "")
-        self._t(d, (RX + 44, y + 30), pat, 13, P["ink"], True)
-        self._t(d, (RX + 44, y + 47), f"RGB {spec.led_rgb[0]},{spec.led_rgb[1]},{spec.led_rgb[2]}", 11, P["muted"])
+        self._card(d, RX, y, RW, h, "Robot status")
+        _, _, _, light = FRIENDLY[fsm.state]
+        rows_y = y + 34
+        d.ellipse((RX + 14, rows_y - 9, RX + 32, rows_y + 9),
+                  fill=tuple(rt.led) if any(rt.led) else (40, 40, 42), outline=P["line"])
+        self._t(d, (RX + 42, rows_y), "Light", 13, P["muted"], anchor="lm")
+        self._t(d, (RX + 140, rows_y), light, 14, P["ink"], True, "lm")
         tile = rt.buzzer.tile_text(now)
-        self._t(d, (RX + 12, y + h - 40), "BUZZER", 10, P["muted"], bold=True)
-        self._t(d, (RX + 12, y + h - 24), tile or "—", 11, P["ink"] if tile else P["muted"], bold=bool(tile))
-        # link
-        lx = RX + half + GAP
-        self._card(d, lx, y, RW - half - GAP, h, "Link")
+        self._t(d, (RX + 42, rows_y + 28), "Sound", 13, P["muted"], anchor="lm")
+        sound = rt.buzzer.last.label if (tile and rt.buzzer.last is not None) else "quiet"
+        self._t(d, (RX + 140, rows_y + 28), sound, 14, P["ink"], bool(tile), "lm")
+        if fsm.mode is Mode.MANUAL:
+            conn, ccol = "Demo mode (not listening)", P["amber"]
+        elif fsm.link_ok:
+            conn, ccol = "Connected to dashboard", GREEN
+        elif fsm.link_ok is None:
+            conn, ccol = "Connecting…", P["muted"]
+        else:
+            conn, ccol = "Not connected", RED
+        self._t(d, (RX + 42, rows_y + 56), "Dashboard", 13, P["muted"], anchor="lm")
+        self._t(d, (RX + 140, rows_y + 56), conn, 14, ccol, True, "lm")
+        self._t(d, (RX + 14, y + h - 22), "Happy face = no signs found · Sad face = please meet a therapist",
+                11, P["muted"])
+
+    def _details_card(self, d, y, now) -> None:
+        rt, fsm = self.rt, self.rt.fsm
+        h = H - FOOTER - GAP - y
+        self._card(d, RX, y, RW, h, "Technical details (press d to hide)")
+        tp, tt = rt.telemetry()
+        spec = SPECS[fsm.state]
         host = rt.url.split("//", 1)[-1].split("/", 1)[0]
         status = {True: "OK", False: "OFFLINE", None: "—"}[fsm.link_ok]
         if not rt.polling_enabled:
-            status = "not polling" + (" (manual)" if fsm.mode is Mode.MANUAL else "")
+            status = "not polling"
         ago = f"{rt.now() - fsm.last_success:.1f} s ago" if fsm.last_success is not None else "never"
-        boot = fsm.gate.boot_id[:8] if fsm.gate.boot_id else "—"
-        self._t(d, (lx + 12, y + 28), f"{host} · {status}", 13,
-                P["low"] if fsm.link_ok else P["blocked"], True)
-        self._t(d, (lx + 12, y + 46), f"last poll {ago} · seq {fsm.gate.seq if fsm.gate.seq >= 0 else '—'}",
-                11, P["muted"])
-        self._t(d, (lx + 12, y + 61), f"boot {boot} · out-of-order {fsm.gate.out_of_order}", 11, P["muted"])
+        tile = rt.buzzer.tile_text(now)
+        lines = [
+            f"State {fsm.state.value} · {fsm.time_in_state():.1f} s · source {fsm.source}",
+            f"Pan  servo  cmd {tp.cmd:6.1f}°  actual {tp.actual:6.1f}°  PWM {tp.pulse_us:4.0f} µs",
+            f"Tilt servo  cmd {tt.cmd:6.1f}°  actual {tt.actual:6.1f}°  PWM {tt.pulse_us:4.0f} µs",
+            f"LED {spec.led_pattern} {spec.led_hz:g} Hz · RGB {spec.led_rgb[0]},{spec.led_rgb[1]},{spec.led_rgb[2]}",
+            f"Buzzer {tile or '—'}",
+            f"Link {host} · {status} · last poll {ago} · seq {fsm.gate.seq if fsm.gate.seq >= 0 else '—'}",
+            f"Window {self.fps:.0f} fps · 3D {'pybullet' if self.render_3d else 'lightweight' if self.soft else 'off'}",
+        ]
+        for i, ln in enumerate(lines):
+            self._t(d, (RX + 12, y + 28 + i * 21), ln, 12, P["ink"])
 
     def _footer(self, d, now) -> None:
         d.rectangle((0, H - FOOTER, W, H), fill=(234, 232, 225))
-        keys = "m mode · 1–9 states (manual) · 0 auto-cycle · c confirm · x dismiss · v/b camera · r reset view · s screenshot · space pause · q quit"
+        keys = ("m live/demo · 1–9 preview screens · 0 auto demo · drag to rotate · v/b camera · "
+                "d details · s screenshot · q quit")
         self._t(d, (12, H - FOOTER // 2), keys, 12, P["ink"], anchor="lm")
-        right = "fixed-step (headless)" if self.rt.clock == self.rt._virtual_clock else f"{self.fps:4.1f} fps"
-        if self.rt.paused:
-            right = "PAUSED · " + right
+        right = "PAUSED" if self.rt.paused else ""
         self._t(d, (W - 12, H - FOOTER // 2), right, 12, P["muted"], anchor="rm")
 
     def close(self) -> None:

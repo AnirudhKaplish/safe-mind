@@ -19,6 +19,9 @@ false positives/negatives. Treat it the same way as clinical_lexicon.py:
 a targeted patch for a known gap, not a general solution.
 
 Categories returned:
+  - "too_short"           -> fewer than MIN_WORDS words; the models are not
+                             reliable on very short text (e.g. "i am happy"
+                             was read as depression because of "i am" alone)
   - "personal_disclosure" -> proceed to normal risk classification
   - "question"            -> interrogative sentence, not a disclosure
   - "third_party"         -> appears to be about someone else, not the speaker
@@ -52,6 +55,10 @@ GENERAL_STATEMENT_MARKERS = [
     "survey found", "data shows", "report shows",
 ]
 
+# Texts shorter than this are not screened. With only a few words, generic
+# tokens such as "i" / "am" dominate and both models become unreliable.
+MIN_WORDS = 6
+
 QUESTION_WORDS = {"what", "how", "why", "when", "where", "who", "which",
                    "is", "are", "does", "do", "can", "could", "should", "would"}
 
@@ -66,6 +73,12 @@ def classify_input_type(raw_text: str) -> dict:
     """Returns {'category': ..., 'reason': ...}."""
     text = raw_text.strip()
     tokens = _tokenize_lower(text)
+
+    # --- 0. Length check ---
+    if len(tokens) < MIN_WORDS:
+        return {"category": "too_short",
+                "reason": f"Only {len(tokens)} word{'s' if len(tokens) != 1 else ''}. Please write at least "
+                          f"{MIN_WORDS} words so the models have enough to go on."}
 
     # --- 1. Question check ---
     if text.rstrip().endswith("?"):
@@ -119,6 +132,7 @@ if __name__ == "__main__":
         "Depression rates among college students have risen significantly over the past decade according to recent studies.",
         "I haven't left my room in three days and I don't see the point in getting up anymore.",
         "I'm just so tired.",
+        "i am happy",
     ]
     for t in tests:
         result = classify_input_type(t)

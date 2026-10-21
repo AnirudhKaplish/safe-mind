@@ -60,8 +60,9 @@ def main(argv=None) -> int:
     headless = args.headless
     fixed_step = headless and not args.realtime   # deterministic virtual time when headless
     render_3d = not args.no_3d and p is not None
-    if not args.no_3d and p is None:
-        print("[robot] pybullet not found; running twin with 2D console UI.", file=sys.stderr)
+    soft_3d = not args.no_3d and p is None
+    if soft_3d:
+        print("[robot] pybullet not found; using the built-in lightweight 3D view.", file=sys.stderr)
     rt = TwinRuntime(live=True, manual=manual, url=args.url, poll_hz=args.poll_hz, seed=args.seed,
                      gui=args.gui, sound=args.sound, verbose=args.verbose or headless,
                      clock=None if fixed_step else time.monotonic, physics=render_3d)
@@ -77,12 +78,13 @@ def main(argv=None) -> int:
         print(f"[robot] render probe {tried} -> {settings.label}{' (worker process)' if use_worker else ''}")
     else:
         settings, use_worker = QUALITY_LADDER[1], False
-    console = Console(rt, settings=settings, use_worker=use_worker, render_3d=render_3d)
+    console = Console(rt, settings=settings, use_worker=use_worker, render_3d=render_3d,
+                      soft_3d=soft_3d)
     if args.demo_cycle:
         rt.start_demo_cycle()
 
     recorder = Recorder(args.record) if args.record else None
-    window = "MHD companion — digital twin"
+    window = "MHD companion - digital twin"
     cv2 = None
     if not headless:
         import cv2  # noqa: F811
@@ -185,6 +187,9 @@ def handle_key(key: int, rt, console, frame) -> bool:
         console.flash_hint(f"saved {path.name}")
     elif ch == " ":
         rt.paused = not rt.paused
+    elif ch == "d":
+        console.details = not console.details
+        console.flash_hint("technical details shown" if console.details else "technical details hidden")
     return False
 
 

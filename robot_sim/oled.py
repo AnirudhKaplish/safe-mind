@@ -1,6 +1,9 @@
 """SSD1306 128x64 1-bit framebuffer: eyes, icons, two text lines.
 
-There is deliberately no mouth: the face shows system state, not emotion.
+Most states show plain eyes. The two result states show a friendly face:
+"happy" (smiling eyes + smile) when no signs were found, and "sad"
+(droopy eyes + frown + tear) when signs were found. A face uses one text
+line, drawn at the bottom so the mouth has room.
 """
 from __future__ import annotations
 
@@ -116,13 +119,49 @@ def _blit(fb: np.ndarray, bm: np.ndarray, cx: int, cy: int, scale: int = 1) -> N
     fb[y0:y0 + h, x0:x0 + w] |= bm
 
 
+def _draw_face(d: ImageDraw.ImageDraw, kind: str, gaze_px: int = 0) -> None:
+    """Cute face. Eyes sit in rows ~6..34, mouth in ~36..47, text below."""
+    g = max(-config.OLED_GAZE_MAX_PX, min(config.OLED_GAZE_MAX_PX, int(gaze_px)))
+    (lx, cy), (rx, _) = config.OLED_EYE_CENTERS
+    if kind == "happy":
+        # smiling eyes: thick upside-down U arcs  ^  ^
+        for cx in (lx, rx):
+            d.arc((cx + g - 12, cy - 9, cx + g + 12, cy + 15), 180, 360, fill=1, width=5)
+        # little blush marks under the eyes
+        for cx in (lx - 14, rx + 14):
+            for k in (-4, 0, 4):
+                d.line((cx + k - 1, 33, cx + k + 1, 30), fill=1, width=1)
+        # big smile
+        d.arc((44, 22, 84, 46), 25, 155, fill=1, width=3)
+    else:
+        # sad: rounded eyes with the outer top corner cut away (droopy brows)
+        ew, eh = config.OLED_EYE_W, config.OLED_EYE_H - 4
+        for side, cx in ((-1, lx), (1, rx)):
+            x0, x1 = cx + g - ew // 2, cx + g + ew // 2 - 1
+            y0, y1 = cy - eh // 2 + 2, cy + eh // 2 + 1
+            d.rounded_rectangle((x0, y0, x1, y1), radius=6, fill=1)
+            if side < 0:     # left eye: slope down towards the outside (left)
+                d.polygon([(x0 - 2, y0 - 2), (x1 + 2, y0 - 2), (x0 - 2, y0 + 12)], fill=0)
+            else:
+                d.polygon([(x0 - 2, y0 - 2), (x1 + 2, y0 - 2), (x1 + 2, y0 + 12)], fill=0)
+        # small tear under the right eye
+        tx = rx + g + 6
+        d.polygon([(tx, 33), (tx - 3, 38), (tx + 3, 38)], fill=1)
+        d.ellipse((tx - 3, 36, tx + 3, 42), fill=1)
+        # frown
+        d.arc((48, 36, 80, 56), 205, 335, fill=1, width=3)
+
+
 def render(p: OledParams) -> np.ndarray:
     """Return a (64, 128) bool framebuffer. Raises TextOverflow on bad text."""
     check_lines(p.lines)
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
 
-    if p.eyes != "none":
+    face = p.eyes in ("happy", "sad")
+    if face:
+        _draw_face(d, p.eyes, p.gaze_px)
+    elif p.eyes != "none":
         ew, eh = config.OLED_EYE_W, config.OLED_EYE_H
         if p.eyes == "attentive":
             ew, eh = ew + 2, eh + 4
@@ -138,7 +177,8 @@ def render(p: OledParams) -> np.ndarray:
 
     for i, ln in enumerate(p.lines):
         w = font().getbbox(ln)[2] if ln else 0
-        d.text(((W - w) // 2, config.OLED_TEXT_Y[i]), ln, font=font(), fill=1)
+        row = 1 if (face and len(p.lines) == 1) else i
+        d.text(((W - w) // 2, config.OLED_TEXT_Y[row]), ln, font=font(), fill=1)
 
     fb = np.array(img, dtype=bool)
     if p.icon:

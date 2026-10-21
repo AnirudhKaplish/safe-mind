@@ -157,6 +157,10 @@ def render_human_readable(report: dict) -> str:
         lines.append(f"Risk Level       : {report['risk_level']}")
         lines.append(f"Combined conf.   : {report['confidence']*100:.1f}%")
     lines.append(f"Consent status   : {report['consent_status']['status']}")
+    if "model_breakdown" not in report:
+        lines.append(f"Reason           : {report.get('reason', '-')}")
+        lines.append("=" * 70)
+        return "\n".join(lines)
     lines.append("")
     lines.append("Model breakdown:")
     for m in report["model_breakdown"]:

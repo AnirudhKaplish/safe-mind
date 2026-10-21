@@ -32,6 +32,9 @@ except Exception:
     bert_predict_proba = None
     load_bert = None
 from src.features.input_type_filter import classify_input_type
+from src.xai import highlight
+from src.report import person_report
+from src.preprocessing.clean_text import clean_pipeline
 # Robot digital twin (robot_sim/): standard-library-only modules. The robot
 # reads its state from /api/robot/state; it can never write back here.
 from robot_sim.bus import robot_bus
@@ -43,7 +46,9 @@ BERT_DEPRESSION_THRESHOLD = 0.50
 RISK_LEVEL_MAP = {"not_depression": "Low", "depression": "High"}
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024   # uploads up to 5 MB
 REPORTS = []
+PERSON_REPORTS = []
 
 
 def get_consent_status(consent_log_path=f"{RESULTS_DIR}/blockchain_consent_demo_log.json"):
@@ -158,6 +163,7 @@ def build_report(text, patient_id, consent_log_path):
         "consent_status": consent,
         "model_breakdown": [baseline_result, bert_result],
     }
+    report["explanation"] = highlight.explain(text, [baseline_result, bert_result])
     if agree:
         report["risk_class"] = baseline_result["prediction"]
         report["risk_level"] = RISK_LEVEL_MAP.get(baseline_result["prediction"], "Unknown")
@@ -165,6 +171,43 @@ def build_report(text, patient_id, consent_log_path):
         avg_dep_prob = (baseline_result["dep_prob"] + bert_result["dep_prob"]) / 2
         report["meter_pct"] = round(avg_dep_prob * 100, 1)
     return report
+
+
+# ---------------------------------------------------------------------------
+# Batch helpers for person-level (many posts) reports
+# ---------------------------------------------------------------------------
+def baseline_dep_probs(texts):
+    model, vectorizer, scaler, le = load_artifacts()
+    proba = model.predict_proba(featurize(texts, vectorizer, scaler))
+    dep_idx = list(le.classes_).index("depression")
+    return [float(p[dep_idx]) for p in proba]
+
+
+def bert_dep_probs(texts, batch=16):
+    out = []
+    for i in range(0, len(texts), batch):
+        out.extend(float(d["depression"]) for d in bert_predict_proba(list(texts[i:i + batch])))
+    return out
+
+
+def baseline_word_contribs(texts):
+    """Exact per-word contribution of the linear baseline model towards
+    'depression' for each text (coefficient x TF-IDF weight)."""
+    model, vectorizer, scaler, le = load_artifacts()
+    coef = model.coef_[0]
+    dep_idx = list(le.classes_).index("depression")
+    sign = 1.0 if list(model.classes_).index(dep_idx) == 1 else -1.0
+    vocab = vectorizer.get_feature_names_out()
+    tf = vectorizer.transform([clean_pipeline(t) for t in texts])
+    out = []
+    for r in range(tf.shape[0]):
+        row = tf.getrow(r)
+        out.append({vocab[j]: sign * coef[j] * v for j, v in zip(row.indices, row.data)})
+    return out
+
+
+def explain_post(text):
+    return [baseline_predict(text), bert_predict(text)]
 
 
 BASE = """
@@ -361,6 +404,86 @@ BASE = """
     .pulse-dots span{ animation:none; opacity:1; }
   }
 
+  /* plain-language result callouts */
+  .callout{ border-radius:12px; padding:18px 20px; margin-bottom:18px; border:1.5px solid; }
+  .callout h3{ margin:0 0 6px; font-family:'Fraunces',serif; font-size:21px; font-weight:600; }
+  .callout p{ margin:6px 0 0; font-size:14.5px; line-height:1.5; }
+  .callout.red{ background:#FDECEA; border-color:#C0392B; color:#6E1F17; }
+  .callout.red h3{ color:#C0392B; }
+  .callout.green{ background:#EAF5EE; border-color:#2E7D52; color:#1E4D34; }
+  .callout.green h3{ color:#2E7D52; }
+  .callout.amber{ background:#FFF5E1; border-color:#B08328; color:#5C4413; }
+  .callout.amber h3{ color:#8A6418; }
+  .callout.grey{ background:#F1F2F1; border-color:#8B958F; color:#3E4744; }
+  .therapist{ display:block; color:#C0392B; font-weight:700; font-size:22px; margin:10px 0 2px; }
+  .helpline{ margin-top:12px; padding-top:10px; border-top:1px dashed rgba(192,57,43,.4); font-size:13.5px; }
+  .report-actions{ display:flex; gap:10px; align-items:flex-start; }
+  .btn-pdf{ background:#2F6F63; color:#fff; border:0; border-radius:9px; padding:10px 16px;
+            font:600 14px 'Inter',sans-serif; cursor:pointer; display:inline-flex; gap:8px; align-items:center; }
+  .btn-pdf:hover{ background:#255A50; }
+  .how-to-read{ font-size:13.5px; color:var(--ink-soft); line-height:1.55; }
+  .how-to-read li{ margin:3px 0; }
+  .print-only{ display:none; }
+  .report-header{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+
+  /* highlighted explanation */
+  .why{ font-size:15px; line-height:1.55; color:var(--ink); margin:0 0 14px; }
+  .hl-text{ font-size:16px; line-height:2.05; padding:16px 18px; background:#FBFAF7; border:1px solid var(--line-soft);
+            border-radius:10px; white-space:pre-wrap; }
+  .hl-text mark{ color:inherit; border-radius:4px; padding:1px 3px; }
+  .hl-dep{ font-weight:600; }
+  .hl-ok{ font-weight:500; }
+  .hl-phrase{ border-bottom:2.5px solid #C0392B; padding-bottom:1px; }
+  .hl-tag{ font-size:10px; font-weight:700; color:#fff; background:#C0392B; border-radius:4px; padding:1px 5px;
+           margin-left:3px; letter-spacing:.2px; vertical-align:super; white-space:nowrap; }
+  .hl-legend{ display:flex; flex-wrap:wrap; gap:8px 18px; font-size:12.5px; color:var(--muted); margin:10px 0 4px; }
+  .hl-legend mark{ color:var(--ink); border-radius:4px; padding:0 4px; }
+  .kw-table{ width:100%; border-collapse:collapse; margin-top:14px; font-size:13.5px; }
+  .kw-table th{ text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted);
+                font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line); }
+  .kw-table td{ padding:7px 8px; border-bottom:1px solid var(--line-soft); vertical-align:middle; }
+  .kw-word{ font-weight:600; }
+  .eff-up{ color:#C0392B; font-weight:600; } .eff-down{ color:#2E7D52; font-weight:600; } .eff-none{ color:#9AA39F; }
+  .kw-bar{ height:8px; border-radius:4px; background:#EEE; position:relative; min-width:90px; }
+  .kw-bar span{ position:absolute; left:0; top:0; bottom:0; border-radius:4px; }
+  .theme-chip{ display:inline-block; background:#FDECEA; color:#8E2B20; border:1px solid #E8B4AD; border-radius:999px;
+               padding:2px 10px; font-size:12.5px; font-weight:600; margin:2px 4px 2px 0; }
+  .theme-chip.urgent{ background:#C0392B; color:#fff; border-color:#C0392B; }
+  /* person report */
+  .stats{ display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:6px 0 4px; }
+  .stat{ background:#FBFAF7; border:1px solid var(--line-soft); border-radius:10px; padding:10px 12px; }
+  .stat b{ display:block; font-size:24px; font-family:'Fraunces',serif; }
+  .stat span{ font-size:12px; color:var(--muted); }
+  .stat.red b{ color:#C0392B; } .stat.amber b{ color:#8A6418; } .stat.green b{ color:#2E7D52; }
+  .ptable{ width:100%; border-collapse:collapse; font-size:13px; }
+  .ptable th{ text-align:left; font-size:11px; text-transform:uppercase; color:var(--muted); padding:6px; border-bottom:1px solid var(--line); }
+  .ptable td{ padding:7px 6px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+  .dot{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+  .dot.flagged{ background:#C0392B; } .dot.unsure{ background:#B08328; } .dot.clear{ background:#2E7D52; }
+  .post-card{ border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:12px 0; break-inside:avoid; }
+  .post-meta{ font-size:12.5px; color:var(--muted); margin-bottom:8px; }
+  .muted-small{ font-size:12.5px; color:var(--muted); }
+  .upload-hint{ font-size:13px; color:var(--ink-soft); background:#FBFAF7; border:1px dashed var(--line); border-radius:10px;
+                padding:12px 14px; line-height:1.55; }
+  .error-box{ background:#FDECEA; color:#8E2B20; border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:14px; }
+  @media (max-width: 720px){ .stats{ grid-template-columns:repeat(2,1fr); } }
+
+  @media print{
+    @page{ margin:14mm; }
+    *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body{ background:#fff; }
+    .sidebar, .back-link, .report-actions, #loading-overlay{ display:none !important; }
+    .shell{ display:block; }
+    .main{ padding:0 !important; max-width:none !important; }
+    .panel{ box-shadow:none; break-inside:auto; }
+    .callout, .meter-wrap, .model-table, .evidence-block, .how-to-read, .quote-block{ break-inside:avoid; }
+    .report-header{ display:block; }
+    .eyebrow-free-title{ white-space:nowrap; font-size:26px !important; }
+    .note{ break-before:avoid; }
+    .print-only{ display:block; }
+    .meter-marker{ animation:none; }
+  }
+
   @media (max-width: 720px){
     .shell{ flex-direction:column; }
     .sidebar{ width:100%; }
@@ -372,6 +495,7 @@ BASE = """
 <div id="loading-overlay">
   <div class="pulse-dots"><span></span><span></span><span></span></div>
   <div class="loading-text">Running the assessment&hellip;</div>
+  <div class="loading-text" style="font-size:13px;opacity:.75;margin-top:6px;">A person report with many posts can take a minute or two.</div>
 </div>
 
 <div class="shell">
@@ -389,6 +513,7 @@ BASE = """
     </div>
     <div class="nav">
       <a href="{{ url_for('index') }}" class="{{ 'active' if active=='home' else '' }}">New assessment</a>
+      <a href="{{ url_for('person_form') }}" class="{{ 'active' if active=='person' else '' }}">Person report (all posts)</a>
       <a href="{{ url_for('index') }}#history" class="{{ 'active' if active=='history' else '' }}">History</a>
     </div>
     <div class="sidebar-footer">
@@ -405,16 +530,56 @@ BASE = """
 
 <script>
   document.addEventListener('DOMContentLoaded', function(){
-    var form = document.getElementById('assess-form');
-    if(form){
-      form.addEventListener('submit', function(){
-        document.getElementById('loading-overlay').classList.add('active');
-      });
-    }
+    ['assess-form','person-form'].forEach(function(id){
+      var form = document.getElementById(id);
+      if(form){
+        form.addEventListener('submit', function(){
+          document.getElementById('loading-overlay').classList.add('active');
+        });
+      }
+    });
   });
 </script>
 </body>
 </html>
+"""
+
+EXPLAIN_MACRO = """
+{% macro explain_block(e, title="Why the AI gave this result") %}
+  <div class="panel">
+    <h2>{{ title }}</h2>
+    <p class="why">{{ e['why'] }}</p>
+    <div class="hl-text">{{ e['html']|safe }}</div>
+    <div class="hl-legend">
+      <span><mark style="background:rgba(192,57,43,.55)">word</mark> pushed towards depression</span>
+      <span><mark style="background:rgba(46,125,82,.45)">word</mark> pushed away from depression</span>
+      <span><span class="hl-phrase">underlined</span> known warning phrase (theme in red)</span>
+      <span>Darker colour = stronger effect</span>
+    </div>
+    {% if e['theme_names'] %}
+      <p style="margin:12px 0 0; font-size:13.5px;"><strong>Warning themes found:</strong>
+      {% for t in e['theme_names'] %}<span class="theme-chip {{ 'urgent' if t == 'Thoughts of disappearing' else '' }}">{{ t }}</span>{% endfor %}</p>
+    {% endif %}
+    {% if e['rows'] %}
+    <table class="kw-table">
+      <thead><tr><th>Word</th>
+        {% for m in e['model_names'] %}<th>{{ 'Model 1 (word patterns)' if loop.index == 1 else 'Model 2 (BERT)' }}</th>{% endfor %}
+        <th>Overall effect</th></tr></thead>
+      <tbody>
+      {% for row in e['rows'] %}
+        <tr>
+          <td class="kw-word">{{ row['word'] }}</td>
+          {% for v in row['per_model'] %}
+            <td>{% if v is none %}<span class="eff-none">not used</span>{% elif v > 0 %}<span class="eff-up">&uarr; towards depression</span>{% else %}<span class="eff-down">&darr; away from it</span>{% endif %}</td>
+          {% endfor %}
+          <td><div class="kw-bar"><span style="width:{{ row['bar'] }}%; background:{{ '#C0392B' if row['combined'] > 0 else '#2E7D52' }};"></span></div></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+{% endmacro %}
 """
 
 INDEX_BODY = """
@@ -461,15 +626,64 @@ INDEX_BODY = """
 </div>
 """
 
-REPORT_BODY = """
+REPORT_BODY = EXPLAIN_MACRO + """
 <a href="{{ url_for('index') }}" class="back-link">&lsaquo; Back to console</a>
 
+<div class="print-only" style="margin-bottom:14px;">
+  <div style="font-family:'Fraunces',serif; font-size:24px; font-weight:600; color:#1C2A2E;">Meridian &middot; Screening report</div>
+  <div style="font-size:12.5px; color:#6B7672;">Report #{{ r['id'] }} &middot; generated {{ r['generated_at'] }} (UTC) &middot; for discussion with a doctor or therapist</div>
+</div>
 <div class="report-header">
   <div>
     <h1 class="eyebrow-free-title">{{ r['patient_id'] }}</h1>
     <p class="report-meta">{{ r['generated_at'] }}</p>
   </div>
+  <div class="report-actions">
+    <button type="button" class="btn-pdf" onclick="window.print()" title="Opens the print window. Choose 'Save as PDF'.">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>
+      Save as PDF
+    </button>
+  </div>
 </div>
+
+{% if r['status'] == 'AGREEMENT' and r.get('risk_class') == 'depression' %}
+  <div class="callout red">
+    <h3>Signs of depression were found in this text</h3>
+    <span class="therapist">Please meet a therapist.</span>
+    <p>Both AI models agree. This is not a diagnosis, but it is a good reason to talk to a professional.
+       Save this report as a PDF and take it with you: it shows the exact words that led to this result,
+       so the therapist can see <em>why</em>.</p>
+    <p class="helpline"><strong>Need to talk to someone now?</strong> Call Tele-MANAS on <strong>14416</strong>
+       or <strong>1800-891-4416</strong> (free, 24/7, India).</p>
+  </div>
+{% elif r['status'] == 'AGREEMENT' %}
+  <div class="callout green">
+    <h3>No signs of depression were found</h3>
+    <p>Both AI models agree that this text does not show signs of depression.
+       If you are still feeling low, talking to someone you trust or a therapist always helps.</p>
+  </div>
+{% elif r['status'] == 'DISAGREEMENT' %}
+  <div class="callout amber">
+    <h3>The AI is not sure</h3>
+    <p>The two AI models gave different answers, so no automatic result is given.
+       Please show this report to a therapist so a person can decide.</p>
+  </div>
+{% elif r['status'] == 'BLOCKED' %}
+  <div class="callout grey">
+    <h3>Not analysed: no permission</h3>
+    <p>Consent to analyse this text was withdrawn, so nothing was processed.</p>
+  </div>
+{% elif r['status'] == 'NOT_APPLICABLE' and r.get('category') == 'too short' %}
+  <div class="callout grey">
+    <h3>Too short to check</h3>
+    <p>{{ r['reason'] }} Very short texts like "i am happy" can confuse the AI, so they are not screened.</p>
+  </div>
+{% elif r['status'] == 'NOT_APPLICABLE' %}
+  <div class="callout grey">
+    <h3>Not analysed: not a personal post</h3>
+    <p>This text doesn't look like someone describing their own feelings, so it was not screened.</p>
+  </div>
+{% endif %}
 
 {% if r['status'] == 'BLOCKED' %}
   <div class="status-line"><span class="status-pill blocked">Blocked</span></div>
@@ -478,7 +692,7 @@ REPORT_BODY = """
   </div>
 
 {% elif r['status'] == 'NOT_APPLICABLE' %}
-  <div class="status-line"><span class="status-pill blocked">Not a personal disclosure</span></div>
+  <div class="status-line"><span class="status-pill blocked">{{ 'Too short' if r.get('category') == 'too short' else 'Not a personal disclosure' }}</span></div>
   <div class="panel">
     <p>Detected as <strong>{{ r['category'] }}</strong>. {{ r['reason'] }}</p>
     <p style="color:var(--muted); font-size:13.5px;">Risk classification does not apply to this kind of input, so it was not run.</p>
@@ -493,39 +707,16 @@ REPORT_BODY = """
         <div class="split-label">{{ r['model_breakdown'][0]['model_full'] }}</div>
         <div class="split-verdict">{{ r['model_breakdown'][0]['prediction'].replace('_',' ')|title }}</div>
         <div class="split-conf">{{ '%.0f' % (r['model_breakdown'][0]['confidence']*100) }}% confidence</div>
-        <div class="chip-row" style="margin-top:12px;">
-          {% for word, val in r['model_breakdown'][0]['lime_words'] %}
-            {% set pred0 = r['model_breakdown'][0]['prediction'] %}
-            {% if val > 0 and pred0 == 'depression' %}
-              <span class="chip support-high">{{ word }}</span>
-            {% elif val > 0 and pred0 == 'not_depression' %}
-              <span class="chip support-low">{{ word }}</span>
-            {% else %}
-              <span class="chip oppose">{{ word }}</span>
-            {% endif %}
-          {% endfor %}
-        </div>
       </div>
       <div class="split-half right">
         <div class="split-label">{{ r['model_breakdown'][1]['model_full'] }}</div>
         <div class="split-verdict">{{ r['model_breakdown'][1]['prediction'].replace('_',' ')|title }}</div>
         <div class="split-conf">{{ '%.0f' % (r['model_breakdown'][1]['confidence']*100) }}% confidence</div>
-        <div class="chip-row" style="margin-top:12px;">
-          {% for word, val in r['model_breakdown'][1]['lime_words'] %}
-            {% set pred1 = r['model_breakdown'][1]['prediction'] %}
-            {% if val > 0 and pred1 == 'depression' %}
-              <span class="chip support-high">{{ word }}</span>
-            {% elif val > 0 and pred1 == 'not_depression' %}
-              <span class="chip support-low">{{ word }}</span>
-            {% else %}
-              <span class="chip oppose">{{ word }}</span>
-            {% endif %}
-          {% endfor %}
-        </div>
       </div>
     </div>
-    <p style="font-size:14px; color:var(--ink-soft);">No automatic verdict is given when the models disagree. Route this one to a clinician directly.</p>
+    <p style="font-size:14px; color:var(--ink-soft);">Because the two models disagree, no automatic result is given. A therapist should review this text.</p>
   </div>
+  {{ explain_block(r['explanation']) if r.get('explanation') }}
 
 {% else %}
   <div class="status-line">
@@ -539,7 +730,7 @@ REPORT_BODY = """
       </div>
       <div class="meter-scale"><span>Not depression</span><span>Depression</span></div>
     </div>
-    <h2>Model breakdown</h2>
+    <h2>What each AI model said</h2>
     <table class="model-table">
       {% for m in r['model_breakdown'] %}
         <tr>
@@ -548,41 +739,271 @@ REPORT_BODY = """
         </tr>
       {% endfor %}
     </table>
+  </div>
+  {{ explain_block(r['explanation']) if r.get('explanation') }}
+{% endif %}
 
-    <div class="evidence-block">
-      <div class="evidence-label">Why: {{ r['model_breakdown'][0]['model'] }}</div>
-      <div class="chip-row">
-        {% for word, val in r['model_breakdown'][0]['lime_words'] %}
-          {% if val > 0 and r['risk_class'] == 'depression' %}
-            <span class="chip support-high">{{ word }}</span>
-          {% elif val > 0 and r['risk_class'] == 'not_depression' %}
-            <span class="chip support-low">{{ word }}</span>
-          {% else %}
-            <span class="chip oppose">{{ word }}</span>
-          {% endif %}
-        {% endfor %}
+{% if r['status'] in ('AGREEMENT', 'DISAGREEMENT') %}
+<div class="panel">
+  <h2>How to read this report</h2>
+  <ul class="how-to-read">
+    <li>Two different AI models read the text separately. When they agree, you get a result; when they disagree, a person should decide.</li>
+    <li>The percentage shows how sure the models were, not how serious anything is.</li>
+    <li>In the coloured text, red words pushed the AI towards depression and green words pushed it away. Underlined phrases are known warning phrases (for example about low energy or hopelessness). This lets a therapist check whether the AI understood the text correctly.</li>
+    <li>This is a screening aid, not a diagnosis. Only a doctor or therapist can diagnose depression.</li>
+  </ul>
+</div>
+{% endif %}
+
+{% if not r.get('explanation') %}
+<div class="panel">
+  <h2>The text that was checked</h2>
+  <div class="quote-block">{{ r['text'] }}</div>
+</div>
+{% endif %}
+
+<p class="note">This is decision support, not an autonomous diagnosis. Final clinical judgement rests with the reviewing doctor or therapist.</p>
+"""
+
+
+PERSON_FORM_BODY = """
+<h1 class="eyebrow-free-title">Person report</h1>
+<p class="subtitle">Screen many posts by the same person at once, for example their Reddit history, and get one report:
+an overall result, a timeline, recurring warning themes, and the posts that need attention.</p>
+
+{% if error %}<div class="error-box">{{ error }}</div>{% endif %}
+<div class="panel">
+  <form id="person-form" method="POST" action="{{ url_for('analyze_person') }}" enctype="multipart/form-data">
+    <div class="field-row">
+      <div class="field">
+        <label for="patient_id">Patient reference</label>
+        <input type="text" id="patient_id" name="patient_id" value="demo-patient-001">
       </div>
-      <div class="evidence-label">Why: {{ r['model_breakdown'][1]['model'] }}</div>
-      <div class="chip-row">
-        {% for word, val in r['model_breakdown'][1]['lime_words'] %}
-          {% if val > 0 and r['risk_class'] == 'depression' %}
-            <span class="chip support-high">{{ word }}</span>
-          {% elif val > 0 and r['risk_class'] == 'not_depression' %}
-            <span class="chip support-low">{{ word }}</span>
-          {% else %}
-            <span class="chip oppose">{{ word }}</span>
-          {% endif %}
-        {% endfor %}
+      <div class="field">
+        <label for="consent_scenario">Consent state to check against</label>
+        <select id="consent_scenario" name="consent_scenario">
+          <option value="granted">Currently granted</option>
+          <option value="revoked">Currently revoked</option>
+        </select>
       </div>
-      <p class="evidence-note">Solid-colored words pushed toward the final verdict; crossed-out words argued against it.</p>
     </div>
+    <div class="field">
+      <label for="files">Upload the person's data (optional)</label>
+      <input type="file" id="files" name="files" accept=".csv,.json,.txt" multiple>
+    </div>
+    <div class="upload-hint">
+      <strong>How the person shares their Reddit posts (with consent):</strong>
+      they request their own data at <em>reddit.com/settings/data-request</em>, download the zip Reddit emails them,
+      and share <code>posts.csv</code> and/or <code>comments.csv</code>. You can upload both at once.
+      JSON (<code>[{"text": ..., "date": ...}]</code>) and plain text files also work.
+      Sample files are in <code>data\\samples\\</code>.
+    </div>
+    <div class="field" style="margin-top:14px;">
+      <label for="posts">&hellip;or paste posts (leave a blank line between posts; optional date like <code>2026-05-01:</code> at the start)</label>
+      <textarea id="posts" name="posts" style="min-height:160px;" placeholder="2026-05-01: Had a lovely weekend with my cousins, we went hiking and cooked dinner together.
+
+2026-06-12: I haven't been sleeping well and I feel tired all the time lately."></textarea>
+    </div>
+    <button type="submit" class="primary">Build person report</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Previous person reports</h2>
+  {% if reports %}
+    <div class="history">
+    {% for r in reports|reverse %}
+      <div class="history-item">
+        <a href="{{ url_for('view_person', report_id=r['id']) }}">{{ r['patient_id'] }}</a>
+        <div class="history-meta">{{ r['generated_at'] }} &middot;
+          {% if r['blocked'] %}Blocked (no consent){% else %}{{ r['s']['counts']['analysed'] }} posts checked &middot; {{ r['s']['verdict']['title'] }}{% endif %}</div>
+      </div>
+    {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">Nothing yet.</p>
+  {% endif %}
+</div>
+"""
+
+PERSON_REPORT_BODY = EXPLAIN_MACRO + """
+<a href="{{ url_for('person_form') }}" class="back-link">&lsaquo; Back to person reports</a>
+<div class="print-only" style="margin-bottom:14px;">
+  <div style="font-family:'Fraunces',serif; font-size:24px; font-weight:600; color:#1C2A2E;">Meridian &middot; Person screening report</div>
+  <div style="font-size:12.5px; color:#6B7672;">Report P{{ r['id'] }} &middot; generated {{ r['generated_at'] }} (UTC) &middot; for discussion with a doctor or therapist</div>
+</div>
+<div class="report-header">
+  <div>
+    <h1 class="eyebrow-free-title">{{ r['patient_id'] }}</h1>
+    <p class="report-meta">All posts &middot; {{ r['generated_at'] }}{% if not r['blocked'] and r['s']['period'] %} &middot; posts from {{ r['s']['period'][0] }} to {{ r['s']['period'][1] }}{% endif %}</p>
+  </div>
+  <div class="report-actions">
+    <button type="button" class="btn-pdf" onclick="window.print()" title="Opens the print window. Choose 'Save as PDF'.">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>
+      Save as PDF
+    </button>
+  </div>
+</div>
+
+{% if r['blocked'] %}
+  <div class="callout grey">
+    <h3>Not analysed: no permission</h3>
+    <p>Consent to analyse this person's posts was withdrawn, so none of the {{ r['n_posts'] }} posts were processed.</p>
+  </div>
+{% else %}
+{% set s = r['s'] %}
+{% set v = s['verdict'] %}
+
+{% if s['urgent'] %}
+  <div class="callout red" style="border-width:2.5px;">
+    <h3>Some posts mention wanting to disappear</h3>
+    <p><strong>Please reach out to the person soon.</strong> If there is any immediate danger, contact emergency services.
+       Tele-MANAS (free, 24/7, India): <strong>14416</strong> or <strong>1800-891-4416</strong>.</p>
   </div>
 {% endif %}
 
+{% if v['level'] == 'red' %}
+  <div class="callout red">
+    <h3>{{ v['title'] }}</h3>
+    <span class="therapist">Please meet a therapist.</span>
+    <p>{{ s['counts']['flagged'] }} of {{ s['counts']['analysed'] }} checked posts were flagged by both AI models{% if s['trend'] == 'rising' %}, and the signs get stronger in the more recent posts{% endif %}.
+       This is not a diagnosis. Save this report as a PDF and take it to a therapist: it shows which posts and which words led to this result.</p>
+    <p class="helpline"><strong>Need to talk to someone now?</strong> Call Tele-MANAS on <strong>14416</strong> or <strong>1800-891-4416</strong> (free, 24/7, India).</p>
+  </div>
+{% elif v['level'] == 'amber' %}
+  <div class="callout amber">
+    <h3>{{ v['title'] }}</h3>
+    <p>{{ s['counts']['flagged'] }} post(s) were flagged by both models and the models disagreed on {{ s['counts']['unsure'] }}.
+       It is worth discussing these posts with a therapist.</p>
+  </div>
+{% elif v['level'] == 'green' %}
+  <div class="callout green">
+    <h3>{{ v['title'] }}</h3>
+    <p>None of the {{ s['counts']['analysed'] }} checked posts were flagged by both AI models. If the person still feels low, talking to someone always helps.</p>
+  </div>
+{% else %}
+  <div class="callout grey"><h3>{{ v['title'] }}</h3><p>{{ v['rule'] }}</p></div>
+{% endif %}
+
 <div class="panel">
-  <h2>Patient text</h2>
-  <div class="quote-block">{{ r['text'] }}</div>
+  <h2>Summary</h2>
+  <div class="stats">
+    <div class="stat"><b>{{ s['counts']['analysed'] }}</b><span>posts checked</span></div>
+    <div class="stat red"><b>{{ s['counts']['flagged'] }}</b><span>signs found (both AIs agree)</span></div>
+    <div class="stat amber"><b>{{ s['counts']['unsure'] }}</b><span>not sure (AIs disagree)</span></div>
+    <div class="stat green"><b>{{ s['counts']['clear'] }}</b><span>no signs</span></div>
+    <div class="stat"><b>{{ s['counts']['skipped'] }}</b><span>skipped (too short / not personal)</span></div>
+  </div>
+  {% if s['subreddits'] %}<p class="muted-small" style="margin-top:10px;">Most posts were in:
+    {% for name, n in s['subreddits'] %}r/{{ name }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  <p class="muted-small" style="margin-top:6px;"><strong>How the overall result was decided:</strong> {{ v['rule'] }}</p>
 </div>
+
+{% if s['timeline'] %}
+<div class="panel">
+  <h2>Timeline</h2>
+  <p class="muted-small" style="margin-top:-4px;">One dot per post, oldest on the left. Higher = the AI models leaned more towards depression.
+    <span class="dot flagged"></span>signs found <span class="dot unsure"></span>not sure <span class="dot clear"></span>no signs
+    {% if s['trend'] == 'rising' %}&middot; <strong style="color:#C0392B;">Trend: getting worse over time</strong>
+    {% elif s['trend'] == 'falling' %}&middot; <strong style="color:#2E7D52;">Trend: improving over time</strong>
+    {% elif s['trend'] == 'steady' %}&middot; Trend: steady{% endif %}</p>
+  {{ r['svg']|safe }}
+</div>
+{% endif %}
+
+{% if s['themes'] %}
+<div class="panel">
+  <h2>Warning themes that came up</h2>
+  <table class="ptable">
+    <thead><tr><th>Theme</th><th>In how many posts</th><th>Example phrases (as written)</th><th>Posts</th></tr></thead>
+    <tbody>
+    {% for t in s['themes'] %}
+      <tr>
+        <td><span class="theme-chip {{ 'urgent' if t['urgent'] else '' }}">{{ t['theme'] }}</span></td>
+        <td>{{ t['posts'] }}</td>
+        <td>{% for ph in t['phrases'] %}&ldquo;{{ ph }}&rdquo;{{ ', ' if not loop.last }}{% endfor %}</td>
+        <td class="muted-small">#{{ t['post_numbers']|join(', #') }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if s['words'] %}
+<div class="panel">
+  <h2>Words that kept pushing towards depression</h2>
+  <p class="muted-small" style="margin-top:-4px;">Across all checked posts, from Model 1 (word patterns). Longer bar = stronger overall push.</p>
+  <table class="kw-table">
+    <tbody>
+    {% for w in s['words'] %}
+      <tr><td class="kw-word" style="width:30%;">{{ w['word'] }}</td>
+          <td class="muted-small" style="width:22%;">in {{ w['posts'] }} post{{ 's' if w['posts'] != 1 }}</td>
+          <td><div class="kw-bar"><span style="width:{{ w['bar'] }}%; background:#C0392B;"></span></div></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if s['attention'] %}
+<div class="panel">
+  <h2>Posts that need attention</h2>
+  <p class="muted-small" style="margin-top:-4px;">The most concerning posts, explained word by word.</p>
+  {% for p in s['attention'] %}
+    <div class="post-card">
+      <div class="post-meta"><span class="dot {{ p['status'] }}"></span><strong>Post #{{ p['n'] }}</strong>
+        {% if p['date'] %}&middot; {{ p['date'].strftime('%d %b %Y') }}{% endif %}
+        {% if p['subreddit'] %}&middot; r/{{ p['subreddit'] }}{% endif %}
+        &middot; {{ {'flagged': 'Signs found (both AIs agree)', 'unsure': 'Not sure (AIs disagree)', 'clear': 'No signs'}[p['status']] }}
+        &middot; Model 1: {{ '%.0f' % (p['base_prob']*100) }}% &middot; Model 2: {{ '%.0f' % (p['bert_prob']*100) }}% towards depression</div>
+      <p class="why" style="font-size:14px;">{{ p['explanation']['why'] }}</p>
+      <div class="hl-text">{{ p['explanation']['html']|safe }}</div>
+    </div>
+  {% endfor %}
+  <div class="hl-legend">
+    <span><mark style="background:rgba(192,57,43,.55)">word</mark> pushed towards depression</span>
+    <span><mark style="background:rgba(46,125,82,.45)">word</mark> pushed away from depression</span>
+    <span><span class="hl-phrase">underlined</span> known warning phrase</span>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>All posts</h2>
+  <table class="ptable">
+    <thead><tr><th>#</th><th>Date</th><th>Result</th><th>Towards depression</th><th>Themes</th><th>Post</th></tr></thead>
+    <tbody>
+    {% for p in s['posts'] %}
+      <tr>
+        <td>{{ p['n'] }}</td>
+        <td class="muted-small" style="white-space:nowrap;">{{ p['date'].strftime('%d %b %Y') if p['date'] else '' }}</td>
+        {% if p.get('skip_reason') %}
+          <td class="muted-small">Skipped ({{ p['skip_reason'] }})</td><td></td><td></td>
+        {% else %}
+          <td style="white-space:nowrap;"><span class="dot {{ p['status'] }}"></span>{{ {'flagged': 'Signs found', 'unsure': 'Not sure', 'clear': 'No signs'}[p['status']] }}</td>
+          <td>{{ '%.0f' % (p['avg_prob']*100) }}%</td>
+          <td class="muted-small">{{ p['theme_names']|join(', ') }}</td>
+        {% endif %}
+        <td style="font-size:12.5px;">{{ p['text'][:160] }}{{ '&hellip;'|safe if p['text']|length > 160 }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2>How to read this report</h2>
+  <ul class="how-to-read">
+    <li>Each post was checked by two different AI models. A post counts as "signs found" only when both agree.</li>
+    <li>Posts that are very short, are questions, or are about someone else are skipped, because the AI is not reliable on them.</li>
+    <li>Warning themes come from a list of phrases linked to depression symptoms (for example low energy, hopelessness, withdrawal from people).</li>
+    <li>In the coloured posts, red words pushed the AI towards depression and green words pushed it away.</li>
+    <li>This is a screening aid, not a diagnosis. Only a doctor or therapist can diagnose depression.</li>
+  </ul>
+  {% if not r['bert_available'] %}<p class="muted-small">Note: the BERT model was not found, so Model 2 used a stand-in.</p>{% endif %}
+</div>
+{% endif %}
 
 <p class="note">This is decision support, not an autonomous diagnosis. Final clinical judgement rests with the reviewing doctor or therapist.</p>
 """
@@ -639,6 +1060,79 @@ def view_report(report_id):
     body = render_template_string(REPORT_BODY, r=r)
     return render_template_string(BASE, body=body, active="home",
                                    consent_status=consent["status"], title=f"Meridian - {r['patient_id']}")
+
+
+@app.route("/person")
+def person_form():
+    consent = get_consent_status()
+    body = render_template_string(PERSON_FORM_BODY, reports=PERSON_REPORTS, error=request.args.get("error"))
+    return render_template_string(BASE, body=body, active="person",
+                                   consent_status=consent["status"], title="Meridian - Person report")
+
+
+@app.route("/analyze_person", methods=["POST"])
+def analyze_person():
+    patient_id = request.form.get("patient_id", "demo-patient-001").strip() or "demo-patient-001"
+    scenario = request.form.get("consent_scenario", "granted")
+    consent_log_path = (f"{RESULTS_DIR}/blockchain_consent_state_granted.json"
+                        if scenario == "granted" else f"{RESULTS_DIR}/blockchain_consent_demo_log.json")
+    posts = []
+    for f in request.files.getlist("files"):
+        if f and f.filename:
+            raw = f.read().decode("utf-8-sig", errors="replace")
+            try:
+                posts.extend(person_report.parse_any(raw, f.filename))
+            except (ValueError, KeyError):
+                return redirect(url_for("person_form", error=f"Could not read {f.filename}."))
+    pasted = request.form.get("posts", "").strip()
+    if pasted:
+        posts.extend(person_report.parse_text(pasted))
+    if not posts:
+        return redirect(url_for("person_form", error="Add some posts first (paste them or upload a file)."))
+
+    consent = get_consent_status(consent_log_path)
+    rid = len(PERSON_REPORTS) + 1
+    base = {"id": rid, "patient_id": patient_id, "consent_status": consent,
+            "generated_at": datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M")}
+    if consent["status"] != "granted":
+        report = dict(base, blocked=True, n_posts=len(posts))
+        PERSON_REPORTS.append(report)
+        robot_bus.publish(from_report({"status": "BLOCKED"}, report_id=rid))
+        return redirect(url_for("view_person", report_id=rid))
+
+    robot_bus.publish(processing_command())
+    try:
+        summary = person_report.analyse(
+            posts, baseline_dep_probs=baseline_dep_probs,
+            bert_dep_probs=bert_dep_probs if BERT_AVAILABLE else None,
+            explain_post=explain_post, baseline_word_contribs=baseline_word_contribs,
+            thresholds=(BASELINE_DEPRESSION_THRESHOLD, BERT_DEPRESSION_THRESHOLD))
+    except Exception:
+        robot_bus.publish(error_command(reason="analysis_exception"))
+        raise
+    report = dict(base, blocked=False, s=summary, svg=person_report.timeline_svg(summary["timeline"]),
+                  bert_available=BERT_AVAILABLE)
+    PERSON_REPORTS.append(report)
+    robot_bus.publish(from_report(person_report.robot_report(summary), report_id=rid))
+    return redirect(url_for("view_person", report_id=rid))
+
+
+@app.route("/person/<int:report_id>")
+def view_person(report_id):
+    r = next((rep for rep in PERSON_REPORTS if rep["id"] == report_id), None)
+    if r is None:
+        return redirect(url_for("person_form"))
+    consent = get_consent_status()
+    body = render_template_string(PERSON_REPORT_BODY, r=r)
+    return render_template_string(BASE, body=body, active="person",
+                                   consent_status=consent["status"], title=f"Meridian - {r['patient_id']} (all posts)")
+
+
+# --- SAFE-MIND user app (connected user check-in page at /user) ---
+from src.dashboard.user_api import register as register_user_app
+register_user_app(app, baseline_dep_probs, bert_dep_probs if BERT_AVAILABLE else None, build_report, REPORTS,
+                  robot_bus, processing_command, from_report, error_command,
+                  (BASELINE_DEPRESSION_THRESHOLD, BERT_DEPRESSION_THRESHOLD))
 
 
 if __name__ == "__main__":

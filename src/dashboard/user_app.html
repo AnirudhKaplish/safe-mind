@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SAFE-MIND Check-in</title>
+<style>
+:root{--bg:#f4f1ea;--card:#fffdf8;--ink:#1f2a2e;--mute:#66757a;--line:#e3ddcf;--teal:#1f6f78;--teal2:#e3f1f1;
+--red:#b3261e;--red2:#fbe9e7;--amb:#a15c00;--amb2:#fff1d6;--grn:#2e7d4f;--grn2:#e3f3ea;--shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(31,42,46,.06)}
+@media(prefers-color-scheme:dark){:root{--bg:#14191b;--card:#1c2326;--ink:#ecebe6;--mute:#9aa8ac;--line:#2e3a3e;--teal:#6cc3cb;--teal2:#1d3438;
+--red:#ff8a80;--red2:#3a1f1d;--amb:#ffc266;--amb2:#3a2d12;--grn:#7fd6a0;--grn2:#17301f;--shadow:none}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Segoe UI",system-ui,-apple-system,sans-serif}
+h1,h2,h3{font-family:Georgia,"Times New Roman",serif;font-weight:600;margin:0 0 .4em}
+header{max-width:900px;margin:0 auto;padding:18px 16px 4px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.brand{font:600 20px Georgia,serif;display:flex;align-items:center;gap:10px}
+.brand i{width:30px;height:30px;border-radius:9px;background:var(--teal);display:inline-block;position:relative}
+.brand i:after{content:"";position:absolute;inset:8px;border:2px solid var(--card);border-radius:50%}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);border-radius:99px;padding:4px 12px;font-size:13px;color:var(--mute)}
+.chip b{color:var(--ink);font-weight:600}
+.dot{width:9px;height:9px;border-radius:50%;background:#aaa}
+.on .dot{background:var(--grn);box-shadow:0 0 0 3px var(--grn2)}.off .dot{background:var(--red)}
+main{max-width:900px;margin:0 auto;padding:12px 16px 60px}
+.steps{display:flex;gap:6px;margin:10px 0 18px}
+.steps span{flex:1;height:5px;border-radius:9px;background:var(--line)}.steps span.d{background:var(--teal)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:var(--shadow);margin-bottom:16px}
+.lead{color:var(--mute);max-width:62ch}
+button{font:600 15px inherit;font-family:inherit;border:0;border-radius:11px;padding:11px 20px;cursor:pointer;background:var(--teal);color:#fff}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
+label.tick{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:12px;margin:8px 0;cursor:pointer}
+label.tick input{margin-top:5px;width:18px;height:18px;accent-color:var(--teal)}
+.tabs{display:flex;gap:6px;margin:14px 0 10px}
+.tabs button{background:transparent;color:var(--mute);border:1px solid var(--line);padding:8px 14px}
+.tabs button.a{background:var(--teal2);color:var(--teal);border-color:var(--teal)}
+textarea{width:100%;min-height:170px;border:1px solid var(--line);border-radius:12px;padding:12px;font:15px/1.5 inherit;font-family:inherit;background:var(--bg);color:var(--ink)}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:30px;text-align:center;color:var(--mute);cursor:pointer}
+.drop:hover{border-color:var(--teal)}
+.note{font-size:13px;color:var(--mute)}
+.tag{display:inline-block;font-size:12px;border-radius:99px;padding:2px 10px;margin:2px 4px 2px 0;background:var(--teal2);color:var(--teal)}
+.feed{max-height:430px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+.item{display:flex;gap:12px;padding:11px 14px;border-bottom:1px solid var(--line);animation:in .3s ease}
+.item:last-child{border:0}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+.pill{flex:none;min-width:84px;text-align:center;font-size:12px;font-weight:700;border-radius:99px;padding:3px 8px;height:24px;margin-top:2px}
+.flag{background:var(--red2);color:var(--red)}.unsure{background:var(--amb2);color:var(--amb)}.ok{background:var(--grn2);color:var(--grn)}
+.short,.na{background:var(--line);color:var(--mute)}
+.item p{margin:0;font-size:14.5px}.item small{color:var(--mute)}
+.bar{height:8px;border-radius:9px;background:var(--line);overflow:hidden;margin:10px 0}
+.bar div{height:100%;background:var(--teal);width:0;transition:width .3s}
+.verdict{border-radius:16px;padding:22px;display:flex;gap:18px;align-items:center}
+.verdict .face{font-size:44px;line-height:1}
+.red{background:var(--red2);color:var(--red)}.amber{background:var(--amb2);color:var(--amb)}.green{background:var(--grn2);color:var(--grn)}
+.verdict h2{margin:0}.verdict p{margin:2px 0 0;color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:16px 0}
+.stat{border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
+.stat b{display:block;font:600 26px Georgia,serif}.stat span{font-size:12px;color:var(--mute)}
+.help{border-left:4px solid var(--red);background:var(--red2);padding:12px 16px;border-radius:8px;margin:14px 0}
+.sys{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.sys div{border:1px solid var(--line);border-radius:12px;padding:12px;font-size:13.5px}
+.sys b{display:block;margin-bottom:3px}
+code{font:12px ui-monospace,Consolas,monospace;word-break:break-all}
+.hide{display:none}
+.err{background:var(--red2);color:var(--red);padding:12px 14px;border-radius:10px;margin-top:12px}
+@media print{header,.steps,.row,.sys,.chips{display:none}.card{box-shadow:none}body{background:#fff}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i>SAFE-MIND Check-in</div>
+  <div class="chips">
+    <div class="chip" id="cEngine"><span class="dot"></span>Engine <b>...</b></div>
+    <div class="chip" id="cChain"><span class="dot"></span>Blockchain <b>...</b></div>
+    <div class="chip" id="cRobot"><span class="dot"></span>Robot <b>...</b></div>
+  </div>
+</header>
+<main>
+<div class="steps" id="steps"><span></span><span></span><span></span><span></span><span></span></div>
+
+<!-- 1 welcome -->
+<section class="card" id="s0">
+  <h1>A private check-in on how your posts sound</h1>
+  <p class="lead">You choose what is shared, nothing is collected unless you allow it, and you can take your permission back at any time. This is a screening aid, not a diagnosis.</p>
+  <div class="sys" style="margin-top:14px">
+    <div><b>1. You give permission</b>Written to a blockchain so it cannot be changed quietly.</div>
+    <div><b>2. Your own posts are checked</b>Two AI models read each post and must agree.</div>
+    <div><b>3. You see the result</b>The robot and the clinician dashboard show the same outcome.</div>
+  </div>
+  <div class="row"><button onclick="go(1)">Get started</button></div>
+</section>
+
+<!-- 2 permission -->
+<section class="card hide" id="s1">
+  <h2>Your permission</h2>
+  <p class="lead">Please tick each line to continue.</p>
+  <label class="tick"><input type="checkbox" class="req"><span>I am sharing <b>my own</b> posts and I understand they will be read by an automated model.</span></label>
+  <label class="tick"><input type="checkbox" class="req"><span>I understand this is a <b>screening</b>, not a medical diagnosis.</span></label>
+  <label class="tick"><input type="checkbox" class="req"><span>I understand I can <b>revoke</b> my permission at any time and the checking stops at once.</span></label>
+  <label class="tick"><input type="checkbox" class="req"><span>I understand only my <b>permission record</b> goes on the blockchain, never my posts.</span></label>
+  <label class="tick"><input type="checkbox" id="share"><span>Optional: send the flagged result to a <b>therapist dashboard</b> so I can be contacted.</span></label>
+  <div class="row"><button id="grantBtn" disabled onclick="grant()">Give permission</button><button class="ghost" onclick="go(0)">Back</button></div>
+  <div class="err hide" id="e1"></div>
+</section>
+
+<!-- 3 posts -->
+<section class="card hide" id="s2">
+  <h2>Share your posts</h2>
+  <div id="consentLine" class="note"></div>
+  <div class="tabs"><button class="a" id="tUp" onclick="tab('up')">Upload file</button><button id="tPa" onclick="tab('pa')">Paste text</button><button id="tLg" disabled title="Planned: needs Reddit OAuth approval">Log in with Reddit (planned)</button></div>
+  <div id="pUp">
+    <div class="drop" onclick="document.getElementById('file').click()" id="dropzone">Click to choose <b>posts.csv</b>, <b>comments.csv</b> or a <b>.json</b> file<br><span class="note">From reddit.com/settings/data-request, or JSON like [{"text":"...","date":"2026-05-01"}]. You can choose several files.</span></div>
+    <input type="file" id="file" class="hide" multiple accept=".csv,.json,.txt">
+  </div>
+  <div id="pPa" class="hide">
+    <textarea id="paste" placeholder="Paste posts here. Leave a blank line between posts. You may start a post with a date like 2026-05-01: ."></textarea>
+  </div>
+  <p id="loaded" class="note"></p>
+  <div class="row"><button id="runBtn" disabled onclick="run()">Check my posts</button><button class="ghost" onclick="revoke()">Revoke permission</button></div>
+  <div class="err hide" id="e2"></div>
+</section>
+
+<!-- 4 live checking -->
+<section class="card hide" id="s3">
+  <h2 id="liveTitle">Checking your posts live</h2>
+  <div class="bar"><div id="prog"></div></div>
+  <p class="note" id="progTxt"></p>
+  <div class="feed" id="feed"></div>
+  <div class="row"><button id="getRep" class="hide" onclick="showReport()">Get report &rarr;</button><button class="ghost" onclick="revoke()">Stop and revoke permission</button></div>
+</section>
+
+<!-- 5 report -->
+<section class="hide" id="s4">
+  <div class="card">
+    <div class="verdict" id="verdict"></div>
+    <div class="help hide" id="urgent"><b>You matter.</b> Some posts mention wanting to disappear. Please talk to someone today. Tele-MANAS is free and open 24/7: <b>14416</b> or <b>1800-891-4416</b>.</div>
+    <div class="grid" id="stats"></div>
+    <h3>Timeline</h3><div id="chart"></div>
+    <h3 style="margin-top:18px">Warning themes</h3><div id="themes"></div>
+  </div>
+  <div class="card"><h3>Posts that need attention</h3><div class="feed" id="attn"></div></div>
+  <div class="card"><h3>What happened behind the scenes</h3><div class="sys" id="sysbox"></div>
+    <div class="row"><button class="ghost" onclick="go(3)">&larr; Back to live results</button><button onclick="window.print()">Save as PDF</button><button class="ghost" onclick="revoke()">Revoke permission</button><button class="ghost" onclick="restart()">Start again</button></div>
+    <p class="note">This is a screening aid. It cannot diagnose anything. A trained person should review any concern.</p>
+  </div>
+</section>
+</main>
+
+<script>
+/* If this file is opened directly (not from Flask) point it at the running dashboard */
+const BASE = location.protocol === "file:" ? "http://127.0.0.1:5000" : "";
+const $ = id => document.getElementById(id);
+let posts = [], step = 0, results = [], consentTx = null, gateTx = null, lastHealth = null, lastFinal = null;
+
+/* ---------- navigation ---------- */
+function go(n){
+  step = n;
+  ["s0","s1","s2","s3","s4"].forEach((s,i)=>$(s).classList.toggle("hide", i!==n));
+  [...$("steps").children].forEach((e,i)=>e.classList.toggle("d", i<=n));
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function restart(){ posts=[]; results=[]; $("loaded").textContent=""; $("runBtn").disabled=true; $("feed").innerHTML=""; go(2); }
+
+/* ---------- live connection chips ---------- */
+function setChip(id, on, text){ const c=$(id); c.className="chip "+(on?"on":"off"); c.querySelector("b").textContent=text; }
+async function health(){
+  try{
+    const r = await fetch(BASE+"/api/user/health"); const h = await r.json(); lastHealth=h;
+    setChip("cEngine", true, "ready");
+    setChip("cChain", h.chain.online, h.chain.online ? "connected" : "offline");
+    const rb = h.robot && h.robot.ok;
+    setChip("cRobot", rb, rb ? "connected" : "not found");
+  }catch(e){
+    setChip("cEngine", false, "offline"); setChip("cChain", false, "unknown"); setChip("cRobot", false, "unknown");
+  }
+}
+health(); setInterval(health, 4000);
+
+/* ---------- permission ---------- */
+document.querySelectorAll(".req").forEach(c=>c.addEventListener("change",()=>{
+  $("grantBtn").disabled = ![...document.querySelectorAll(".req")].every(x=>x.checked);
+}));
+function showErr(id,msg){ const e=$(id); e.textContent=msg; e.classList.toggle("hide",!msg); }
+async function post(path, body){
+  const r = await fetch(BASE+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  return r;
+}
+async function grant(){
+  showErr("e1","");
+  $("grantBtn").disabled=true; $("grantBtn").textContent="Writing to blockchain...";
+  try{
+    const r = await (await post("/api/user/consent",{action:"grant",share:$("share").checked})).json();
+    consentTx = r.tx;
+    $("consentLine").innerHTML = "Permission <b>granted</b>. " + (r.tx ? "Transaction <code>"+r.tx+"</code> (block "+r.block+")" : r.note);
+    go(2);
+  }catch(e){ showErr("e1","Could not reach the screening engine. Start the dashboard first (see the setup steps)."); }
+  $("grantBtn").disabled=false; $("grantBtn").textContent="Give permission";
+}
+async function revoke(){
+  try{ const r = await (await post("/api/user/consent",{action:"revoke"})).json(); consentTx = r.tx; }catch(e){}
+  results=[]; posts=[]; $("feed").innerHTML=""; $("loaded").textContent="";
+  document.querySelectorAll("input[type=checkbox]").forEach(c=>c.checked=false);
+  $("grantBtn").disabled=true; go(0);
+  setTimeout(()=>alert("Permission revoked. Checking has stopped and your posts were removed from this page."),50);
+}
+
+/* ---------- loading posts ---------- */
+function tab(t){ $("pUp").classList.toggle("hide",t!=="up"); $("pPa").classList.toggle("hide",t!=="pa");
+  $("tUp").classList.toggle("a",t==="up"); $("tPa").classList.toggle("a",t==="pa"); if(t==="pa") fromPaste(); }
+function parseCSV(t){
+  const rows=[]; let row=[],cur="",q=false;
+  for(let i=0;i<t.length;i++){const c=t[i];
+    if(q){ if(c==='"'){ if(t[i+1]==='"'){cur+='"';i++} else q=false } else cur+=c }
+    else if(c==='"') q=true; else if(c===','){row.push(cur);cur=""}
+    else if(c==='\n'||c==='\r'){ if(c==='\r'&&t[i+1]==='\n') i++; row.push(cur);cur=""; if(row.length>1||row[0]) rows.push(row); row=[] }
+    else cur+=c }
+  if(cur||row.length){row.push(cur);rows.push(row)} return rows;
+}
+function fromCSV(text){
+  const rows=parseCSV(text); if(rows.length<2) return [];
+  const h=rows[0].map(x=>x.trim().toLowerCase());
+  const ti=h.indexOf("title"), bi=h.findIndex(x=>["body","selftext","text","content"].includes(x)), di=h.findIndex(x=>x==="date"||x==="created"||x==="created_utc");
+  return rows.slice(1).map(r=>{
+    const t=[ti>=0?r[ti]:"", bi>=0?r[bi]:""].filter(Boolean).join(". ").trim();
+    return {text:t, date:di>=0?(r[di]||"").slice(0,10):""};
+  }).filter(p=>p.text && p.text!=="[deleted]" && p.text!=="[removed]");
+}
+function fromPaste(){
+  const t=$("paste").value.trim();
+  posts = t ? t.split(/\n\s*\n/).map(b=>{ const m=b.match(/^(\d{4}-\d{2}-\d{2})\s*[:\-]\s*([\s\S]*)$/); return m?{date:m[1],text:m[2].trim()}:{date:"",text:b.trim()} }).filter(p=>p.text) : [];
+  info();
+}
+$("paste").addEventListener("input", fromPaste);
+$("file").addEventListener("change", async e=>{
+  let all=[];
+  for(const f of e.target.files){
+    const txt = await f.text();
+    try{
+      if(f.name.toLowerCase().endsWith(".json")){ const j=JSON.parse(txt); all=all.concat((Array.isArray(j)?j:[]).map(p=>({text:String(p.text||p.body||""),date:String(p.date||"").slice(0,10)})).filter(p=>p.text)); }
+      else if(f.name.toLowerCase().endsWith(".csv")) all=all.concat(fromCSV(txt));
+      else all=all.concat(txt.split(/\n\s*\n/).map(x=>({text:x.trim(),date:""})).filter(p=>p.text));
+    }catch(err){ showErr("e2","Could not read "+f.name+": "+err.message); }
+  }
+  posts=all; info();
+});
+function info(){ $("loaded").textContent = posts.length ? posts.length+" posts ready." : ""; $("runBtn").disabled=!posts.length; }
+
+/* ---------- live analysis ---------- */
+const LABEL={flag:"Signs found",unsure:"Not sure",ok:"No signs",short:"Too short",na:"Skipped"};
+function itemHTML(r){
+  const m=r.models?` <small>baseline ${r.models.baseline.label} ${Math.round(r.models.baseline.conf*100)}% · BERT ${r.models.bert.label} ${Math.round(r.models.bert.conf*100)}%</small>`:(r.note?` <small>${esc(r.note)}</small>`:"");
+  const th=(r.themes||[]).map(t=>`<span class="tag">${t}</span>`).join("");
+  return `<div class="pill ${r.status}">${LABEL[r.status]}</div><div><p>${esc(r.text.length>220?r.text.slice(0,220)+"...":r.text)}</p>${th}${m}</div>`;
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+
+async function run(){
+  showErr("e2",""); results=[]; $("feed").innerHTML=""; $("prog").style.width="0"; go(3);
+  $("liveTitle").textContent="Checking your posts live"; $("getRep").classList.add("hide"); lastFinal=null; let total=posts.length, final=null;
+  try{
+    const resp = await post("/api/user/analyse",{posts});
+    const rd = resp.body.getReader(), dec=new TextDecoder(); let buf="";
+    while(true){
+      const {value,done}=await rd.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true}); let k;
+      while((k=buf.indexOf("\n"))>=0){
+        const line=buf.slice(0,k); buf=buf.slice(k+1); if(!line.trim()) continue;
+        const m=JSON.parse(line);
+        if(m.type==="blocked"){ go(2); showErr("e2",m.reason); return; }
+        if(m.type==="start"){ total=m.total; gateTx=m.gateTx; $("progTxt").innerHTML="Contract confirmed your permission"+(m.gateTx?" (<code>"+m.gateTx.slice(0,18)+"...</code>)":"")+". Robot is thinking..."; }
+        if(m.type==="post"){ results.push(m); const d=document.createElement("div"); d.className="item"; d.innerHTML=itemHTML(m);
+          $("feed").appendChild(d); $("feed").scrollTop=1e9; $("prog").style.width=Math.round(results.length/total*100)+"%";
+          $("progTxt").textContent="Checked "+results.length+" of "+total; }
+        if(m.type==="done") final=m;
+      }
+    }
+  }catch(e){ go(2); showErr("e2","The engine stopped responding. Check that the dashboard window is still running."); return; }
+  if(final){ lastFinal=final; $("liveTitle").textContent="All posts checked"; $("progTxt").textContent="Checked "+results.length+" of "+total+". Scroll the list, then open your report."; $("getRep").classList.remove("hide"); $("getRep").focus(); }
+  else { go(2); showErr("e2","The check did not finish."); }
+}
+
+/* ---------- report ---------- */
+function report(f){
+  const c=s=>results.filter(r=>r.status===s).length;
+  const flag=c("flag"),uns=c("unsure"),ok=c("ok"),sk=c("short")+c("na"),chk=flag+uns+ok;
+  const V={red:["&#128549;","Please meet a therapist","Several posts show signs that are often linked with depression."],
+           amber:["&#128528;","Worth a second look","Some posts show possible signs, or the two models were not sure."],
+           green:["&#128578;","You seem okay","The checked posts do not show signs that need attention."]}[f.overall];
+  $("verdict").className="verdict "+f.overall;
+  $("verdict").innerHTML=`<div class="face">${V[0]}</div><div><h2>${V[1]}</h2><p>${V[2]}</p></div>`;
+  $("urgent").classList.toggle("hide",!f.urgent);
+  $("stats").innerHTML=[[chk,"checked"],[flag,"signs found"],[uns,"not sure"],[ok,"no signs"],[sk,"skipped"]].map(a=>`<div class="stat"><b>${a[0]}</b><span>${a[1]}</span></div>`).join("");
+  chart();
+  const tm={}; results.forEach(r=>(r.themes||[]).forEach(t=>{(tm[t]=tm[t]||[]).push(r.i)}));
+  $("themes").innerHTML=Object.keys(tm).length?Object.entries(tm).map(([t,l])=>`<span class="tag">${t} (post ${l.join(", ")})</span>`).join(""):'<span class="note">No warning themes found.</span>';
+  const need=results.filter(r=>r.status==="flag"||r.status==="unsure").sort((a,b)=>(b.status==="flag")-(a.status==="flag")).slice(0,5);
+  $("attn").innerHTML=need.length?"":'<div class="item"><span class="note">Nothing needs attention.</span></div>';
+  need.forEach(r=>{const d=document.createElement("div");d.className="item";d.innerHTML=itemHTML(r);$("attn").appendChild(d)});
+  const rb=f.robot&&f.robot.ok?`The robot twin was updated (${esc(JSON.stringify(f.robot.data||{}).slice(0,90))}).`:"Robot not reachable, so only this page showed the result.";
+  $("sysbox").innerHTML=`
+   <div><b>Screening engine</b>Pre-filter, baseline model and BERT ran on ${chk} posts. Both must agree for a firm result.</div>
+   <div><b>Blockchain</b>${consentTx?"Permission tx <code>"+consentTx+"</code>":"Bridge offline, permission was kept locally."}${gateTx?"<br>Processing check <code>"+gateTx+"</code>":""}</div>
+   <div><b>Robot and dashboard</b>${rb}${f.sharedReportId?" A report was sent to the clinician dashboard (report #"+f.sharedReportId+").":""}</div>`;
+  go(4);
+}
+function showReport(){ if(lastFinal) report(lastFinal); }
+function chart(){
+  const pts=results.filter(r=>r.models); if(!pts.length){$("chart").innerHTML='<span class="note">Not enough checked posts.</span>';return}
+  const W=820,H=170,P=30,n=pts.length;
+  const x=i=>P+(n===1?(W-2*P)/2:i*(W-2*P)/(n-1)), y=v=>H-P-v*(H-2*P);
+  const val=r=>(r.models.baseline.dep+r.models.bert.dep)/2;
+  const line=pts.map((r,i)=>(i?"L":"M")+x(i)+","+y(val(r))).join(" ");
+  const col={flag:"var(--red)",unsure:"var(--amb)",ok:"var(--grn)"};
+  $("chart").innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Depression-likelihood score per post over time">
+   <line x1="${P}" x2="${W-P}" y1="${y(.5)}" y2="${y(.5)}" stroke="var(--line)" stroke-dasharray="4"/>
+   <text x="${P}" y="${y(.5)-5}" fill="var(--mute)" font-size="11">0.5</text>
+   <path d="${line}" fill="none" stroke="var(--teal)" stroke-width="2"/>
+   ${pts.map((r,i)=>`<circle cx="${x(i)}" cy="${y(val(r))}" r="6" fill="${col[r.status]}"><title>${esc(r.date||("post "+r.i))}: ${val(r).toFixed(2)}</title></circle>`).join("")}
+   <text x="${P}" y="${H-6}" fill="var(--mute)" font-size="11">${esc(pts[0].date||"first")}</text>
+   <text x="${W-P}" y="${H-6}" text-anchor="end" fill="var(--mute)" font-size="11">${esc(pts[n-1].date||"latest")}</text></svg>`;
+}
+go(0);
+</script>
+</body>
+</html>
