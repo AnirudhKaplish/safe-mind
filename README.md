@@ -1,150 +1,141 @@
-# Interpretable Mental Health Detection from Social Media
+# SAFE-MIND
 
-Implementation for the approved project design. This README covers what's
-built, what's real vs. seeded, and exactly how to run it.
+**A Blockchain-Governed, Explainable AI Framework for Privacy-Preserving Depression Risk Screening and Clinician Referral**
 
-## What's implemented and WORKING (executable today)
+SAFE-MIND screens a person's own social media posts for signs of depression, but only with their permission. A smart contract records consent and blocks processing the moment it is revoked. Two models, a TF-IDF + Logistic Regression baseline and a fine-tuned BERT, must agree before a result is given. Every result shows the words that drove it. Results appear on a clinician dashboard, on a simulated robot digital twin and on a user check-in page.
 
-| # | Module | Path | Status |
-|---|--------|------|--------|
-| 1 | Data pipeline (seed dataset) | `data/build_seed_dataset.py` | ✅ Working |
-| 2 | Text preprocessing | `src/preprocessing/clean_text.py` | ✅ Working |
-| 3 | Feature extraction (TF-IDF, sentiment, linguistic) | `src/features/extract_features.py` | ✅ Working |
-| 4 | Baseline classification (LR, RF) | `src/models/train_baselines.py` | ✅ Working, real metrics |
-| 5 | Explainable AI (SHAP + LIME) | `src/xai/explain.py` | ✅ Working, real outputs |
-| 6 | Blockchain dynamic consent (real smart contract) | `blockchain/` | ✅ Working, real deployed contract |
-| 7 | Report generation (baseline + BERT ensemble, consent enforcement) | `src/report/generate_report_ensemble.py` | ✅ Working (needs `results/bert_model/`) |
-| 8 | Hardware firmware (ESP32) | `hardware/mhd_hardware.ino` | ✅ Written, needs physical board to flash |
-| 9 | Virtual hardware demo, text (no board needed) | `hardware/virtual_device.py` | ✅ Working |
-| 10 | Transformer fine-tuning (BERT/RoBERTa) | `src/models/finetune_transformer.py` | ✅ Trained on Colab; **required** at `results/bert_model/` by the dashboard and ensemble report (not in git) |
-| 11 | Doctor/therapist dashboard (Meridian) | `src/dashboard/app.py` | ✅ Working (baseline + BERT + LIME, consent-gated) |
-| 12 | Robot digital twin of the ESP32 companion | `robot_sim/` | ✅ Working, driven live by the dashboard (see below) |
+> **This is a research prototype and a screening aid. It is not a medical diagnosis.** If you or someone you know needs support in India, Tele-MANAS is free and open 24/7: **14416** or **1800-891-4416**.
 
-## Dataset in use: REAL DATA
+Project of VIT Chennai (School of Computer Science and Engineering). Guide: Dr. Jayanthi R.
+Team: Anirudh Kaplish (23BCE1907), Archita Gupta (23BCE1902).
 
-This pipeline now runs on the **real Kaggle "Depression: Reddit Dataset
-(Cleaned)"** (7,649 posts, binary depression/not_depression labels) —
-`data/real_dataset_raw.csv` is the original download,
-`data/seed_dataset.csv` is the converted `text`/`label` version the
-pipeline actually reads (produced by `data/prepare_real_dataset.py`).
+---
 
-**Note on scope:** this dataset's labels are binary (depression /
-not-depression) — it doesn't have separate anxiety/stress labels, so
-classification was narrowed from the original 4-class design to match
-what's genuinely annotated in the real data. See
-`results/PANEL_REVIEW_SUMMARY.md` for the full reasoning and how to
-present this to the panel.
+## How it works
 
-If you want multi-class (anxiety/stress) results with real ground
-truth later, the Dreaddit dataset (Turcan & McKeown, 2019) has a
-binary stress label and could be merged in - ask and the conversion
-script can be extended.
+```
+ User page (/user)          Meridian clinician dashboard (/)
+        |                               |
+        +---------------+---------------+
+                        v
+        Flask app on port 5000  (src/dashboard)
+        pre-filter -> baseline + BERT -> ensemble -> explanation
+              |                                   |
+              | HTTP, port 8546                   | robot bus (read-only API)
+              v                                   v
+   Node consent bridge                   Robot digital twin
+   ganache + ConsentManager contract     GET /api/robot/state
+```
 
-## How to run everything
+For each post the system does the following:
 
-```bash
+1. **Pre-filter.** Skips questions, statements about other people, general statistics and anything under 6 words. These are texts the models were not trained for.
+2. **Consent check.** Asks the `ConsentManager` smart contract whether permission is valid. If it was revoked, nothing is processed.
+3. **Two models.** A baseline (TF-IDF, VADER sentiment, linguistic features and a 40-phrase lexicon, with Logistic Regression) and a fine-tuned `bert-base-uncased`.
+4. **Ensemble rule.** If both agree, that label is returned with the averaged confidence. If they disagree, the case is marked NEEDS_REVIEW and a person decides.
+5. **Explanation.** Exact word contributions for the baseline and LIME for both models. Red words pushed towards depression and green words pushed away.
+6. **Report.** The result goes to the dashboard and the robot twin.
+
+For many posts (a person report), the overall result is **red** when at least 2 posts are flagged and they are at least 25% of the checked posts, or when any post mentions disappearing. It is **amber** when at least 1 post is flagged or the models disagree on at least 2, and **green** otherwise.
+
+## Results
+
+| Model | Accuracy | Notes |
+|---|---|---|
+| Logistic Regression (threshold 0.40) | 96.2% | Recall on depression rises from 0.928 to 0.947 when the threshold is lowered from 0.50 to 0.40 |
+| Random Forest | 96.7% | Compared, not used in the app |
+| Fine-tuned BERT | about 98.0% (F1 0.980) | 3 epochs on a Colab T4 GPU |
+
+- Data: Kaggle "Depression: Reddit Dataset (Cleaned)", 7,649 posts, split 80/20 (1,913 test posts).
+- A counterfactual-augmented set (16 extra rows, 7,665 in total) fixed a keyword shortcut in BERT: hard cases improved from 3/5 to 5/5.
+- Edge-case tests: 10/10. Personal-disclosure examples accepted: 7/7. Robot digital twin tests: 110.
+- Test accuracy on this dataset is an upper bound. Reddit depression posts are written very differently from everyday posts, so real-world performance will be lower. Labels describe a community, not a diagnosis.
+
+## Repository layout
+
+```
+src/            screening engine (features, models, explanation, reports) and the dashboard
+src/dashboard/  app.py (Meridian), user_api.py + user_app.html (user check-in page)
+blockchain/     Solidity contract, compile and demo scripts, consent_server.js bridge
+robot_sim/      robot digital twin (simulation)
+data/           samples (fictional demo people); raw datasets are not included
+results/        trained baseline files; the BERT model is not included (see below)
+tests/          automated tests
+```
+
+## Setup (Windows)
+
+**You need:** Python 3.11, Node.js 22 and Git.
+
+```
+git clone https://github.com/AnirudhKaplish/safe-mind.git
+cd safe-mind
+python -m venv venv
+venv\Scripts\activate
 pip install -r requirements.txt
-cd blockchain && npm install && cd ..
-bash run_all.sh
+pip install -r requirements-robot.txt
 ```
 
-This runs, in order: dataset build → baseline training → SHAP/LIME
-examples → blockchain consent demo (real deployed contract) → report
-generation (both allowed + blocked consent scenarios) → virtual
-hardware demo. All outputs land in `results/`.
+**Blockchain packages** (once):
 
-### Running the individual pieces
-
-```bash
-# Baseline models + metrics/plots
-python3 src/models/train_baselines.py
-
-# Explainability
-python3 src/xai/explain.py
-
-# Blockchain consent (real local chain + real smart contract)
+```
 cd blockchain
-node scripts/compile.js
-node scripts/deploy_and_demo.js
-
-# Structured report (with consent enforcement)
-python3 src/report/generate_report_ensemble.py
-
-# Virtual hardware device (no physical ESP32 needed)
-python3 hardware/virtual_device.py
-
-# BERT/RoBERTa fine-tuning - RUN THIS ON YOUR OWN MACHINE/COLAB
-cd src/models
-python3 finetune_transformer.py --model bert-base-uncased
+npm install ganache ethers solc
+node scripts\compile.js
+cd ..
 ```
 
-## Project structure
+**Dataset.** Download "Depression: Reddit Dataset (Cleaned)" from Kaggle and save it as `data\seed_dataset.csv`. It is needed only for retraining, not for running the demo.
+
+**BERT model.** The model file is about 440 MB, too large for GitHub. Download the zip from **[BERT model (Google Drive)](https://drive.google.com/file/d/1_9C_LIgCCVWFXESA5apHwRwYu-CYe9gj/view?usp=sharing)**, unzip it, and place the files directly in `results\bert_model\` (`config.json`, `model.safetensors`, `tokenizer.json`, `tokenizer_config.json`). Without it, the app falls back to a baseline stand-in and says so.
+
+## Run
+
+**Everything at once (blockchain bridge, dashboard, robot):**
 
 ```
-mhd_project/
-├── data/
-│   ├── build_seed_dataset.py   # generates seed_dataset.csv
-│   └── seed_dataset.csv
-├── src/
-│   ├── preprocessing/clean_text.py
-│   ├── features/extract_features.py
-│   ├── models/
-│   │   ├── train_baselines.py       # Logistic Regression + Random Forest
-│   │   └── finetune_transformer.py  # BERT/RoBERTa (run locally/Colab)
-│   ├── xai/
-│   │   ├── explain.py               # SHAP + LIME
-│   │   └── save_example_outputs.py
-│   ├── dashboard/app.py             # Meridian dashboard (Flask)
-│   └── report/generate_report_ensemble.py  # baseline + BERT + consent
-├── blockchain/
-│   ├── contracts/ConsentManager.sol # the actual smart contract
-│   ├── scripts/compile.js           # solc-based compile (npm, no external binary)
-│   └── scripts/deploy_and_demo.js   # deploys + runs full consent lifecycle
-├── hardware/
-│   ├── mhd_hardware.ino             # ESP32 firmware (Arduino)
-│   └── virtual_device.py            # console simulator of the same logic
-├── robot_sim/                        # 3D digital twin of the companion (PyBullet)
-├── tests/robot_sim/                  # robot + dashboard-integration tests
-├── docs/ROBOT_SIMULATION.md          # twin design, maths, payload contract
-├── results/                          # all generated metrics/plots/reports
-├── run_all.sh
-└── requirements.txt
+run_user_app.bat
 ```
 
-**Consent at analysis time is log-based:** the dashboard and reports read
-the consent state the contract demo wrote (`results/blockchain_consent_state_granted.json`,
-or `results/blockchain_consent_demo_log.json`, where `blockedConfirmed` means
-revoked). They do not query the chain live during an assessment.
+Then open:
 
-## Robot digital twin (ESP32 companion)
+- `http://127.0.0.1:5000/user` : user check-in page (permission, upload posts, live results, report)
+- `http://127.0.0.1:5000` : Meridian clinician dashboard (single post and person report)
 
-`robot_sim/` is a software twin of the ESP32 device in `hardware/`: a
-pan–tilt head on two SG90 servos, a 128×64 OLED face, an RGB LED, a
-buzzer and two buttons, simulated in PyBullet and shown in an OpenCV
-console. The dashboard publishes each assessment's outcome at
-`GET /api/robot/state` (read-only); the twin polls it and moves to the
-matching state. It shows the *system's* result (analysing, screen clear,
-indicators flagged, models disagree, consent blocked, not a personal
-post, error, offline) — never emotions, clinical words, the input text,
-the patient reference or explanation words.
+The Engine, Blockchain and Robot chips at the top of the user page should all be green. In the robot window, `q` stops the robot and the dashboard.
 
-```bash
-pip install -r requirements.txt -r requirements-robot.txt
-./run_robot_demo.sh                  # dashboard + robot (Windows: run_robot_demo.bat)
-python -m robot_sim --manual         # demo all states without the models
-python -m pytest tests/robot_sim -q  # tests (no BERT weights needed)
-python -m robot_sim.selftest         # PASS/WARN/FAIL self-test
+**Other commands:**
+
+```
+python -m robot_sim --manual          robot only (keys 1-9 show each screen, 0 auto-cycles)
+python test_my_own_sentences.py       try your own sentences
+cd blockchain && node scripts\deploy_and_demo.js     consent lifecycle demo
 ```
 
-Full design, maths and the payload contract: `docs/ROBOT_SIMULATION.md`;
-review walkthrough: `docs/robot_demo_script.md`.
+Linux and macOS: use `run_robot_demo.sh` and `run_all.sh`.
 
-## Why the blockchain is a real smart contract, not a mock
+## Demo data
 
-`blockchain/contracts/ConsentManager.sol` is compiled with the `solc`
-npm package (ships its own WASM compiler, no external binary download
-needed) and deployed to a real local Ethereum-compatible chain via
-`ganache`. `scripts/deploy_and_demo.js` runs the full lifecycle -
-grant → verify → modify → verify → revoke → blocked attempt - with
-real transaction hashes and a real revert on the final step. This is
-genuine on-chain execution, not a simulated log.
+`data/samples/` has fictional people for trying the person report: `demo_person_struggling_posts.csv` with `demo_person_struggling_comments.csv` (red, with the urgent note) and `demo_person_doing_well_posts.csv` (green). To use your own data, request your Reddit data export at reddit.com/settings/data-request and upload `posts.csv` and `comments.csv`.
+
+We deliberately do **not** collect posts by username. That would be profiling without consent and would go against the consent design.
+
+## Known limitations
+
+- Labels describe the community of origin, not a clinical diagnosis. Clinical validation has not been done.
+- Binary scope (depression or not), English text from one platform.
+- Warning themes come from a fixed phrase list. They are not learned.
+- BERT can over-trust the words "I am". A minimum-length rule (6 words) is a patch. The proper fix is retraining with more counterfactual data.
+- The question filter can wrongly skip a personal post.
+- BERT's calibration figures in the paper come from the original model file and need recalibrating for the retrained model (`src/models/calibrate_bert.py`).
+- The blockchain is a local test chain that resets when restarted. The robot is a simulation.
+- "Log in with Reddit" is future work.
+
+## Credits
+
+- Dataset: Kaggle, "Depression: Reddit Dataset (Cleaned)"
+- Libraries: scikit-learn, Hugging Face Transformers, PyTorch, LIME, SHAP, VADER, Flask, ganache, ethers.js
+
+## Cite
+
+> A. Kaplish, A. Gupta and R. Jayanthi, "SAFE-MIND: A Blockchain Governed, Explainable AI Framework for Privacy Preserving Depression Risk Screening and Clinician Referral," VIT Chennai, 2026.
